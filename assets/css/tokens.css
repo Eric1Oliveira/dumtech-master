@@ -1,0 +1,116 @@
+/* DUMTech Master — tokens do design system.
+   Toda cor, fonte, espaço e raio sai daqui. Tema escuro = mesmos nomes, outros valores.
+   Direção (17/11/2026): neutros frios puxados para o azul, um destaque azul-petróleo,
+   verde só para "ok". Leitura confortável: base 15px, IBM Plex Sans com números tabulares;
+   a mono fica para códigos e chaves.
+   Painel de instrumentos (21/11/2026): títulos de página e números em IBM Plex Sans Condensed
+   (mesma família, mais firme); rótulos de número e de coluna em versalete pequeno; um só
+   ritmo vertical (--gap-block) e uma só borda de conteúdo (--panel-x) em todas as caixas. */
+
+@font-face { font-family: 'Plex Sans'; src: url('../fonts/ibm-plex-sans-latin-400-normal.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Plex Sans'; src: url('../fonts/ibm-plex-sans-latin-500-normal.woff2') format('woff2'); font-weight: 500; font-display: swap; }
+@font-face { font-family: 'Plex Sans'; src: url('../fonts/ibm-plex-sans-latin-600-normal.woff2') format('woff2'); font-weight: 600; font-display: swap; }
+@font-face { font-family: 'Plex Condensed'; src: url('../fonts/ibm-plex-sans-condensed-latin-600-normal.woff2') format('woff2'); font-weight: 600; font-display: swap; }
+@font-face { font-family: 'Plex Mono'; src: url('../fonts/ibm-plex-mono-latin-400-normal.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Plex Mono'; src: url('../fonts/ibm-plex-mono-latin-500-normal.woff2') format('woff2'); font-weight: 500; font-display: swap; }
+
+:root {
+  /* Tipografia */
+  --font-sans: 'Plex Sans', system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'Plex Mono', ui-monospace, Consolas, monospace;
+  --font-display: 'Plex Condensed', 'Plex Sans', system-ui, sans-serif;   /* títulos de página e números */
+  --fs-2xs: 12px;
+  --fs-xs: 13px;
+  --fs-sm: 14px;
+  --fs-md: 15px;
+  --fs-lg: 17px;
+  --fs-xl: 20px;
+  --fs-2xl: 30px;
+  --fs-num: 30px;
+  --fs-metric: 26px;   /* todo número de destaque (faixas, painéis, totais) */
+  --fs-label: 11.5px;  /* rótulo de número e de coluna, em maiúsculas */
+
+  /* Espaço (grade de 4px) */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-12: 48px;
+  --panel-x: var(--s-6);   /* borda de conteúdo de toda caixa (painéis, faixas, tabelas, selos) */
+  --gap-block: var(--s-5); /* distância entre blocos da página: a mesma em todas as telas */
+
+  /* Forma */
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+
+  /* Estrutura */
+  --sidebar-w: 256px;
+  --sidebar-w-collapsed: 68px;
+  --topbar-h: 60px;
+  --content-max: 1440px;
+  --aside-w: 340px;
+  --dur: 140ms;
+
+  /* Cores — claro: porcelana fria */
+  color-scheme: light;
+  --bg: #f3f5f7;
+  --bg-sunken: #e9edf1;
+  --sidebar: #edf0f3;
+  --surface: #ffffff;
+  --hover: rgb(20 32 43 / 0.05);
+  --line: #e1e6eb;
+  --line-strong: #cbd3db;
+  --text: #14202b;
+  --text-2: #44515e;
+  --text-3: #66727e;
+  --accent: #11627d;
+  --accent-hover: #0c4f66;
+  --accent-ink: #ffffff;
+  --accent-soft: #e3f0f5;
+  --ok: #1d7a52;
+  --ok-soft: #e4f3eb;
+  --warn: #a35f0b;
+  --warn-soft: #fbf0df;
+  --danger: #b42318;
+  --danger-soft: #fcebe9;
+  --info: #4b56a8;
+  --info-soft: #ecedf8;
+  --shadow-card: 0 1px 2px rgb(20 32 43 / 0.05);
+  --shadow-pop: 0 18px 44px -16px rgb(20 32 43 / 0.3), 0 2px 6px rgb(20 32 43 / 0.06);
+  --backdrop: rgb(15 22 30 / 0.42);
+}
+
+/* Escuro: grafite frio (não preto puro), contraste baixo nas linhas */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0f1419;
+  --bg-sunken: #0b0f13;
+  --sidebar: #0c1116;
+  --surface: #161c22;
+  --hover: rgb(230 236 242 / 0.06);
+  --line: #222a32;
+  --line-strong: #303a44;
+  --text: #e5eaef;
+  --text-2: #a5b0bb;
+  --text-3: #7a8692;
+  --accent: #5cb1cf;
+  --accent-hover: #7ac3dc;
+  --accent-ink: #052330;
+  --accent-soft: rgb(92 177 207 / 0.14);
+  --ok: #52c28f;
+  --ok-soft: rgb(82 194 143 / 0.13);
+  --warn: #dfa64e;
+  --warn-soft: rgb(223 166 78 / 0.12);
+  --danger: #ef6f65;
+  --danger-soft: rgb(239 111 101 / 0.12);
+  --info: #9ea6ee;
+  --info-soft: rgb(158 166 238 / 0.12);
+  --shadow-card: none;
+  --shadow-pop: 0 18px 44px -14px rgb(0 0 0 / 0.65), 0 0 0 1px var(--line);
+  --backdrop: rgb(0 0 0 / 0.55);
+}

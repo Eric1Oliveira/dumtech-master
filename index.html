@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- O hash em script-src e o ws:// local liberam só o recarregamento do Live Server (VS Code). -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-vvt4KWwuNr51XfE5m+hzeNEGhiOfZzG97ccfqGsPwvE='; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://rdap.registro.br https://rdap.verisign.com https://api.telegram.org ws://127.0.0.1:* ws://localhost:*; base-uri 'self'; form-action 'self'; object-src 'none'">
+  <meta name="color-scheme" content="light dark">
+  <title>DUMTech Master</title>
+  <link rel="icon" href="assets/images/favicon.svg" type="image/svg+xml">
+  <!-- Instalar como app (celular e computador). O sw.js só é registrado no site publicado (https). -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="assets/images/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-title" content="DUM Master">
+  <meta name="theme-color" content="#f3f5f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0f1419" media="(prefers-color-scheme: dark)">
+  <link rel="preload" href="assets/fonts/ibm-plex-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="assets/css/tokens.css">
+  <link rel="stylesheet" href="assets/css/global.css">
+  <link rel="stylesheet" href="assets/css/layout.css">
+  <link rel="stylesheet" href="assets/css/components.css">
+  <script src="assets/js/file-guard.js"></script>
+  <script src="assets/js/theme-boot.js"></script>
+  <script src="env.js"></script>
+  <script type="module" src="src/core/app.js"></script>
+</head>
+<body>
+  <div id="app"><div class="boot" role="status">Carregando DUMTech Master…</div></div>
+  <noscript>O DUMTech Master precisa de JavaScript ativado.</noscript>
+</body>
+</html>

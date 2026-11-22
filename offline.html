@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Sem internet · DUMTech Master</title>
+  <!-- Mostrada pelo sw.js quando o app instalado abre sem internet. Fica sozinha: sem CSS nem fonte de fora. -->
+  <style>
+    :root { --bg: #f3f5f7; --surface: #fff; --line: #e1e6eb; --text: #14202b; --text-2: #44515e; --accent: #11627d; --accent-ink: #fff; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #0f1419; --surface: #161c22; --line: #222a32; --text: #e5eaef; --text-2: #a5b0bb; --accent: #5cb1cf; --accent-ink: #0b0f13; } }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body { display: grid; place-items: center; padding: 24px; background: var(--bg); color: var(--text);
+      font: 15px/1.55 system-ui, 'Segoe UI', Roboto, sans-serif; }
+    main { width: 100%; max-width: 380px; padding: 28px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+    svg { display: block; width: 40px; height: 40px; margin-bottom: 20px; }
+    h1 { margin: 0 0 6px; font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+    p { margin: 0 0 22px; color: var(--text-2); }
+    a { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 0 18px; border-radius: 9px;
+      background: var(--accent); color: var(--accent-ink); font-weight: 600; text-decoration: none; }
+    a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  </style>
+</head>
+<body>
+  <main>
+    <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#15181C"/><path d="M9 9h6.2c4.3 0 7.3 2.8 7.3 7s-3 7-7.3 7H9z" fill="none" stroke="#5CC2A0" stroke-width="2.6"/><rect x="13" y="14.6" width="5" height="2.8" rx="1" fill="#5CC2A0"/></svg>
+    <h1>Sem internet</h1>
+    <p>O DUMTech Master guarda tudo no servidor, então precisa de conexão. Quando a internet voltar, toque abaixo.</p>
+    <a href="./">Tentar de novo</a>
+  </main>
+</body>
+</html>

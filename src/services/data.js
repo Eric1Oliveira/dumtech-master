@@ -1,6 +1,6 @@
 // Ponto ÚNICO de acesso a dados. Telas importam só daqui.
-// Sem .env → modo local (localStorage deste navegador). Com SUPABASE_URL/ANON_KEY → Supabase.
-// Os dois backends implementam o mesmo contrato abaixo; trocar um pelo outro não muda tela.
+// O app fala só com o Supabase. O contrato abaixo também vale para o dublê dos testes
+// (tests/support/fake-backend.js), que o smoke usa no lugar deste arquivo.
 
 import { supabaseBackend } from './supabase.js';
 
@@ -329,7 +329,7 @@ import { supabaseBackend } from './supabase.js';
  *   upload: (orgId: string, file: File, productId?: string | null) => Promise<void>,
  *   link: (orgId: string, file: WorkspaceFile) => Promise<string>,
  *   remove: (orgId: string, file: WorkspaceFile) => Promise<void>,
- * }} files          Supabase Storage (bucket privado); indisponível no modo local
+ * }} files          Supabase Storage (bucket privado)
  * @property {{
  *   keys: (orgId: string) => Promise<AnalyticsKey[]>,
  *   createKey: (orgId: string, productId: string, label: string) => Promise<{ id: string, key: string }>,

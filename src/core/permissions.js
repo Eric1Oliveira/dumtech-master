@@ -1,6 +1,6 @@
 // RBAC — catálogo de papéis e permissões.
 // Espelho das migrations em supabase/migrations/ (tests/db.test.js confere).
-// No modo Supabase quem decide de verdade é o banco (RLS + funções). Aqui o catálogo
+// Quem decide de verdade é o banco (RLS + funções). Aqui o catálogo
 // serve para a interface esconder o que o papel não pode fazer.
 
 /** @typedef {'owner' | 'admin' | 'manager' | 'member' | 'viewer'} RoleKey */

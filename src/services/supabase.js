@@ -1,6 +1,6 @@
 // Backend SUPABASE. Usa só a chave pública (anon); quem protege os dados é o banco
 // (RLS + funções das migrations). O SDK fica em assets/js/vendor e só é carregado
-// quando o .env existe — o modo local não baixa nada.
+// quando o .env (env.js) está preenchido.
 
 import { normalizeCustomer } from '../core/customers.js';
 import { normalizeProduct, normalizeSaleItem } from '../core/catalog.js';

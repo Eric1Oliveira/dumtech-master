@@ -1,5 +1,4 @@
-// Tela de entrada. Supabase: e-mail + senha (entrar, criar conta, recuperar senha).
-// Modo local: só identifica o perfil — deixa claro que não há autenticação real.
+// Tela de entrada: e-mail + senha (entrar, criar conta, recuperar senha).
 // Com um link de convite pendente, mostra para qual organização e papel a pessoa foi
 // convidada e trava o e-mail no convidado.
 

@@ -1,5 +1,5 @@
 // Regras do cadastro de clientes. Espelho das constraints da migration 0007
-// (o banco confere de novo). Usadas pelo formulário e pelo modo local.
+// (o banco confere de novo). Usadas pelo formulário e pelo dublê dos testes.
 
 /** @typedef {import('../services/data.js').CustomerInput} CustomerInput */
 

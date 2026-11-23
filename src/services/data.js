@@ -290,6 +290,7 @@ import { supabaseBackend } from './supabase.js';
  *   signOut: () => Promise<void>,
  *   requestPasswordReset: (email: string) => Promise<void>,
  *   updatePassword: (password: string) => Promise<void>,
+ *   updateName: (name: string) => Promise<void>,
  *   onChange: (handler: (event: string) => void) => () => void,
  * }} auth
  * @property {{

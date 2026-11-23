@@ -30,6 +30,13 @@ export async function signUp(input) {
   return result;
 }
 
+/** Troca o próprio nome (apelido que a equipe vê). @param {string} name */
+export async function updateMyName(name) {
+  await data.auth.updateName(name);
+  const user = getState().user;
+  if (user) setState({ user: { ...user, name: String(name).replace(/\s+/g, ' ').trim() } });
+}
+
 export async function signOut() {
   await data.auth.signOut();
   setState({ user: null, orgs: [], org: null });

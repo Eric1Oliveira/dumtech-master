@@ -6,7 +6,9 @@ import { initials } from '../utils/format.js';
 import { getState, subscribe } from '../../core/state.js';
 import { roleName } from '../../core/permissions.js';
 import { GROUPS, MODULES } from '../../modules/index.js';
-import { canDo, switchOrganization, signOut } from '../../services/auth.js';
+import { canDo, switchOrganization, signOut, updateMyName } from '../../services/auth.js';
+import { openDialog } from './dialog.js';
+import { toast } from './feedback.js';
 import { togglePopover, closePopover } from './popover.js';
 import { promptNewOrganization } from './org-dialog.js';
 import { icon } from './icons.js';
@@ -133,8 +135,20 @@ function userMenu() {
         <small>Sua conta</small>
       </div>
       <hr class="menu__sep">
+      <button type="button" class="menu__item" role="menuitem" data-my-name>${icon('edit')}<span class="menu__text">Meu nome</span></button>
       <button type="button" class="menu__item" role="menuitem" data-sign-out>${icon('logout')}<span class="menu__text">Sair</span></button>
     </div>`);
+  panel.querySelector('[data-my-name]').addEventListener('click', async () => {
+    closePopover();
+    const ok = await openDialog({
+      title: 'Meu nome',
+      description: 'É como a equipe vê você: nas tarefas, no Caderno, na auditoria e nos avisos (no lugar do e-mail).',
+      body: html`<label class="field"><span class="field__label">Nome ou apelido</span><input class="input" name="name" value="${user?.name ?? ''}" required minlength="2" maxlength="80" autocomplete="nickname"></label>`,
+      submitLabel: 'Salvar',
+      onSubmit: (form) => updateMyName(String(form.get('name') ?? '')),
+    }).catch((error) => (toastError(error), false));
+    if (ok) toast('Nome salvo.', 'success');
+  });
   panel.querySelector('[data-sign-out]').addEventListener('click', () => {
     closePopover();
     signOut().catch(toastError);

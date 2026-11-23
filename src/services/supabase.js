@@ -223,7 +223,7 @@ export const supabaseBackend = {
       if (!session) return null;
       const profile = unwrap(await sb.from('profiles').select('full_name, email').eq('id', session.user.id).maybeSingle());
       const email = profile?.email || session.user.email || '';
-      return { id: session.user.id, email, name: profile?.full_name || session.user.user_metadata?.full_name || email };
+      return { id: session.user.id, email, name: profile?.full_name || session.user.user_metadata?.full_name || email.split('@')[0] };
     },
 
     async signIn({ email, password }) {
@@ -263,6 +263,16 @@ export const supabaseBackend = {
     async updatePassword(password) {
       const sb = await getClient();
       unwrap(await sb.auth.updateUser({ password }));
+    },
+
+    async updateName(name) {
+      const sb = await getClient();
+      const clean = String(name ?? '').replace(/\s+/g, ' ').trim();
+      if (clean.length < 2 || clean.length > 80) throw new Error('O nome precisa ter de 2 a 80 caracteres.');
+      const session = unwrap(await sb.auth.getSession()).session;
+      if (!session) throw new Error('Sessão expirada. Entre novamente.');
+      const rows = unwrap(await sb.from('profiles').update({ full_name: clean }).eq('id', session.user.id).select('id'));
+      if (!rows.length) throw new Error('Não foi possível salvar o nome.');
     },
 
     onChange(handler) {

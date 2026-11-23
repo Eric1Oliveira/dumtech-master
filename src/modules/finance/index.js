@@ -1,6 +1,7 @@
 // Dinheiro — os números do próprio Master (mensalidades reais, custo dos serviços com o rateio,
-// lucro por projeto, recebido mês a mês) e a conta da empresa no FinanceSolux, lida na hora
-// (Edge Function financesolux-summary; nada é lançado nem copiado de lá).
+// lucro por projeto, recebido mês a mês), o que falta lançar no FinanceSolux (um por um, com
+// confirmação — push-review.js) e a conta da empresa no FinanceSolux, lida na hora.
+// Implantação paga antes da empresa (setupOutside) aparece no projeto, mas não entra nas contas.
 
 import { html, setHtml, $, bindActions } from '../../shared/utils/dom.js';
 import { formatMoney, formatRelative, formatDate } from '../../shared/utils/format.js';
@@ -11,7 +12,14 @@ import { today } from '../../core/validate.js';
 import { data } from '../../services/data.js';
 import { canDo } from '../../services/auth.js';
 import { dataTable } from '../../shared/components/table.js';
-import { emptyState, errorMessage, loadError } from '../../shared/components/feedback.js';
+import { emptyState, errorMessage, loadError, toast, toastError } from '../../shared/components/feedback.js';
+import { openPushReview } from './push-review.js';
+
+const LINK_STATUS = {
+  sent: { label: 'Criado no FinanceSolux', tone: 'ok' },
+  skipped: { label: 'Já estava lá', tone: 'muted' },
+  sending: { label: 'Envio sem confirmação', tone: 'warn' },
+};
 
 const monthFormat = new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 /** "2026-11" → "novembro de 2026" */
@@ -44,6 +52,10 @@ export async function render({ root, signal }) {
         <div class="page-actions"><button type="button" class="btn btn--secondary" data-action="refresh">Atualizar</button></div>
       </header>
       ${seesMaster ? html`<div data-master><div class="skeleton"></div></div>` : ''}
+      <section class="panel" aria-labelledby="push-title">
+        <header class="panel__head"><div><h2 class="panel__title" id="push-title">Lançar no FinanceSolux</h2><p class="panel__hint">O que o Master registrou e ainda não está lá. Nada é criado sem você confirmar, um por um.</p></div></header>
+        <div data-push><div class="skeleton"></div></div>
+      </section>
       <section class="panel" aria-labelledby="fs-title">
         <header class="panel__head"><div><h2 class="panel__title" id="fs-title">Conta da empresa (FinanceSolux)</h2><p class="panel__hint">Lida na hora; o FinanceSolux continua sendo o sistema financeiro</p></div></header>
         <div data-finance><div class="skeleton"></div></div>
@@ -61,6 +73,7 @@ export async function render({ root, signal }) {
           <li><strong>Função:</strong> no Supabase do Master, em Edge Functions, publique <span class="mono">financesolux-summary</span> (código em <span class="mono">supabase/functions/financesolux-summary/index.ts</span>).</li>
           <li><strong>Segredos:</strong> em Edge Functions › Secrets, cadastre <span class="mono">FINANCESOLUX_HUB_READ_KEY</span> (o mesmo <span class="mono">HUB_READ_KEY</span> do FinanceSolux — chave só de leitura) e <span class="mono">FINANCESOLUX_ANON_KEY</span> (chave pública do FinanceSolux).</li>
           <li><strong>FinanceSolux:</strong> a função <span class="mono">hub-export</span> dele publicada, com os secrets <span class="mono">HUB_READ_KEY</span> e <span class="mono">HUB_ACCOUNT_EMAIL</span> (e-mail da conta da empresa que o Master lê).</li>
+          <li><strong>Para lançar daqui:</strong> publique <span class="mono">financesolux-push</span> no Master e <span class="mono">hub-import</span> no FinanceSolux, com a mesma chave em <span class="mono">FINANCESOLUX_HUB_WRITE_KEY</span> (Master) e <span class="mono">HUB_WRITE_KEY</span> (FinanceSolux).</li>
         </ol>`,
     );
 
@@ -93,7 +106,7 @@ export async function render({ root, signal }) {
       const sum = (/** @type {{ s: any }[]} */ list) => list.reduce((t, x) => t + (x.s.monthlyAmount ?? 0), 0);
       const inMonth = (/** @type {string} */ ym) => ({
         fees: payments.filter((p) => p.month === ym).reduce((t, p) => t + p.amount, 0),
-        setups: products.filter((p) => p.setupPaidOn?.startsWith(ym)).reduce((t, p) => t + (p.setupAmount ?? 0), 0),
+        setups: products.filter((p) => !p.setupOutside && p.setupPaidOn?.startsWith(ym)).reduce((t, p) => t + (p.setupAmount ?? 0), 0),
         extras: entries.filter((e) => e.kind === 'revenue' && e.occurredOn.startsWith(ym)).reduce((t, e) => t + e.amount, 0),
       });
       const months = lastMonths(todayKey).map((ym) => ({ month: ym, ...inMonth(ym) }));
@@ -131,7 +144,7 @@ export async function render({ root, signal }) {
               </section>`
             : ''}
           <section class="panel" aria-labelledby="received-title">
-            <header class="panel__head"><div><h2 class="panel__title" id="received-title">Recebido nos últimos 12 meses</h2><p class="panel__hint">O que foi marcado como pago no Master</p></div></header>
+            <header class="panel__head"><div><h2 class="panel__title" id="received-title">Recebido nos últimos 12 meses</h2><p class="panel__hint">O que foi marcado como pago no Master (implantação paga antes da empresa não entra)</p></div></header>
             <div data-received></div>
           </section>`,
       );
@@ -208,7 +221,103 @@ export async function render({ root, signal }) {
     }
   };
 
-  const load = () => Promise.all([drawMaster(), drawFinanceSolux()]);
-  bindActions(root, { refresh: () => load() }, signal);
+  /** O que falta lançar no FinanceSolux e o que já foi. */
+  const drawPush = async () => {
+    const box = /** @type {HTMLElement} */ ($('[data-push]', root));
+    /** @type {import('../../services/data.js').FinanceItem[]} */
+    let items;
+    try {
+      items = await data.finance.items(org.id);
+      if (signal.aborted) return;
+    } catch (error) {
+      if (!signal.aborted) setHtml(box, loadError(error));
+      return;
+    }
+    const pending = items.filter((i) => i.status === null || i.status === 'sending');
+    const done = items.filter((i) => i.status === 'sent' || i.status === 'skipped');
+    const total = (/** @type {string} */ kind) => pending.filter((i) => i.kind === kind).reduce((t, i) => t + i.amount, 0);
+    const manage = canDo('finance.manage');
+    /** Colunas de situação e ação só quando alguma linha precisa delas. */
+    /** @param {import('../../services/data.js').FinanceItem[]} rows @returns {import('../../shared/components/table.js').Column<import('../../services/data.js').FinanceItem>[]} */
+    const columns = (rows) => {
+      const withStatus = rows.some((i) => i.status !== null);
+      const withUndo = manage && rows.some((i) => i.status === 'skipped' || i.status === 'sending');
+      return [
+        { key: 'date', label: 'Data', sortValue: (i) => i.occurredOn, render: (i) => html`<span class="mono">${formatDate(i.occurredOn)}</span>` },
+        { key: 'description', label: 'Descrição', sortValue: (i) => i.description, render: (i) => html`<a class="link-strong" href="#/projects/${i.projectId}">${i.description}</a>` },
+        {
+          key: 'amount',
+          label: 'Valor',
+          align: 'end',
+          sortValue: (i) => (i.kind === 'revenue' ? i.amount : -i.amount),
+          render: (i) => html`<span class="mono ${i.kind === 'revenue' ? 'amount--in' : 'amount--out'}">${i.kind === 'revenue' ? '+' : '−'} ${formatMoney(i.amount)}</span>`,
+        },
+        ...(withStatus
+          ? [{
+              key: 'status',
+              label: 'Situação',
+              hideOnMobile: true,
+              sortValue: (/** @type {import('../../services/data.js').FinanceItem} */ i) => i.status ?? '',
+              render: (/** @type {import('../../services/data.js').FinanceItem} */ i) => {
+                const s = i.status ? LINK_STATUS[i.status] : null;
+                return s ? html`<span class="status-pill status-pill--${s.tone}">${s.label}</span>` : muted('Falta lançar');
+              },
+            }]
+          : []),
+        ...(withUndo
+          ? [{
+              key: 'actions',
+              label: 'Ações',
+              align: /** @type {const} */ ('end'),
+              render: (/** @type {import('../../services/data.js').FinanceItem} */ i) => (i.status === 'skipped' || i.status === 'sending'
+                ? html`<button type="button" class="btn btn--ghost btn--sm" data-action="unlink" data-source="${i.source}" data-id="${i.sourceId}">Voltar para a lista</button>`
+                : ''),
+            }]
+          : []),
+      ];
+    };
+    const revenue = total('revenue');
+    const cost = total('cost');
+    setHtml(
+      box,
+      html`<div class="push-strip">
+          ${pending.length
+            ? html`<p class="push-strip__text"><strong>${pending.length} lançamento${pending.length === 1 ? '' : 's'} do Master</strong> ainda não ${pending.length === 1 ? 'está' : 'estão'} no FinanceSolux${revenue ? ` · + ${formatMoney(revenue)} de receitas` : ''}${cost ? ` · − ${formatMoney(cost)} de despesas` : ''}</p>`
+            : html`<p class="push-strip__text">${items.length ? 'Tudo o que o Master registrou já está no FinanceSolux.' : 'O Master ainda não registrou nenhum recebimento ou gasto.'}</p>`}
+          ${manage && pending.length ? html`<button type="button" class="btn btn--primary" data-action="push">Revisar e lançar</button>` : ''}
+        </div>
+        ${pending.length ? html`<div class="push-table" data-pending></div>` : ''}
+        ${done.length ? html`<details class="push-history"><summary class="link-action">Já lançados (${done.length})</summary><div data-done></div></details>` : ''}`,
+    );
+    $('[data-pending]', box)?.replaceChildren(
+      dataTable({ label: 'Falta lançar no FinanceSolux', rows: pending, sort: { key: 'date', dir: 'desc' }, empty: emptyState({ title: 'Nada para lançar', compact: true }), columns: columns(pending) }),
+    );
+    $('[data-done]', box)?.replaceChildren(
+      dataTable({ label: 'Já lançados no FinanceSolux', rows: done, sort: { key: 'date', dir: 'desc' }, empty: emptyState({ title: 'Nada lançado ainda', compact: true }), columns: columns(done) }),
+    );
+  };
+
+  const load = () => Promise.all([drawMaster(), drawPush(), drawFinanceSolux()]);
+  bindActions(
+    root,
+    {
+      refresh: () => load(),
+      push: async () => {
+        const r = await openPushReview(org.id);
+        if (signal.aborted) return;
+        if (r.sent || r.skipped) await Promise.all([drawPush(), r.sent ? drawFinanceSolux() : null]);
+      },
+      unlink: async (el) => {
+        try {
+          await data.finance.clear(org.id, { source: String(el.dataset.source), sourceId: String(el.dataset.id) });
+          toast('Voltou para a lista do que falta lançar.', 'success');
+          await drawPush();
+        } catch (error) {
+          toastError(error);
+        }
+      },
+    },
+    signal,
+  );
   await load();
 }

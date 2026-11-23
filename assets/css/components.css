@@ -1138,3 +1138,22 @@ body:has(.assistant) .toasts { right: calc(min(420px, 100vw - 32px) + 32px); }
   .stat-strip > div { padding: var(--s-4); }
   .uptime__nums dd { font-size: 20px; }
 }
+
+/* Dinheiro › lançar no FinanceSolux, um por um */
+.push-count { font-size: var(--fs-xs); color: var(--text-3); margin-bottom: var(--s-1); }
+.push-item { display: grid; justify-items: start; gap: var(--s-2); padding: var(--s-4); border-radius: var(--r-md); background: var(--bg); }
+.push-item__amount { font-size: var(--fs-xl); font-weight: 600; line-height: 1.1; }
+.push-item__desc { font-size: var(--fs-sm); color: var(--text); overflow-wrap: anywhere; }
+.push-matches { margin: var(--s-2) 0; padding-left: var(--s-4); list-style: disc; }
+.push-foot { flex-wrap: wrap; }
+.push-foot__gap { flex: 1; }
+.push-strip { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--s-3); }
+.push-strip__text { font-size: var(--fs-sm); color: var(--text-2); }
+.push-strip__text strong { color: var(--text); }
+@media (max-width: 640px) {
+  .push-foot__gap { display: none; }
+  .push-foot .btn { flex: 1 1 auto; }
+}
+.push-table, .push-history { margin-top: var(--s-4); }
+.push-history summary { width: fit-content; cursor: pointer; }
+.push-history[open] summary { margin-bottom: var(--s-3); }

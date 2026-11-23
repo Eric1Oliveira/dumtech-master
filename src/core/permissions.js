@@ -42,6 +42,7 @@ export const PERMISSIONS = [
   { key: 'analytics.view', description: 'Ver o uso dos produtos' },
   { key: 'analytics.manage', description: 'Criar e revogar chaves de coleta' },
   { key: 'finance.view', description: 'Ver os números financeiros (FinanceSolux)' },
+  { key: 'finance.manage', description: 'Lançar receitas e despesas no FinanceSolux' },
 ];
 
 const ALL = PERMISSIONS.map((p) => p.key);

@@ -24,6 +24,7 @@ export const PRODUCT_STATUS = /** @type {const} */ ([
  * @property {number | null} monthlyPrice   Sistema: mensalidade padrão ao adicionar cliente
  * @property {number | null} setupAmount    implantação combinada
  * @property {string | null} setupPaidOn    quando a implantação foi recebida
+ * @property {boolean} setupOutside         paga antes da empresa: aparece como paga, mas não entra nas contas
  * @property {string | null} startDate
  * @property {string | null} dueDate        prazo da construção
  * @property {string | null} ownerId
@@ -51,13 +52,15 @@ export function normalizeProduct(input) {
   const startDate = dateOrNull(input.startDate, 'Início');
   const dueDate = dateOrNull(input.dueDate, 'Prazo');
   if (startDate && dueDate && dueDate < startDate) throw new Error('O prazo não pode ser antes do início.');
+  const setupPaidOn = dateOrNull(input.setupPaidOn, 'Implantação recebida em');
   return {
     name: requiredText(input.name, 'O nome', 2, 120),
     kind: pick(PRODUCT_KINDS, input.kind, 'site'),
     url: urlOrNull(input.url, 'Endereço'),
     monthlyPrice: money(input.monthlyPrice, 'Mensalidade padrão'),
     setupAmount: money(input.setupAmount, 'Implantação'),
-    setupPaidOn: dateOrNull(input.setupPaidOn, 'Implantação recebida em'),
+    setupPaidOn,
+    setupOutside: Boolean(setupPaidOn) && (input.setupOutside === true || input.setupOutside === 'on' || input.setupOutside === 'true'),
     startDate,
     dueDate,
     ownerId: idOrNull(input.ownerId),

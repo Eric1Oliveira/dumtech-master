@@ -167,6 +167,30 @@ import { supabaseBackend } from './supabase.js';
  */
 
 /**
+ * Dinheiro registrado no Master e a situação dele no FinanceSolux (função finance_items).
+ * @typedef {Object} FinanceItem
+ * @property {'payment' | 'setup' | 'entry'} source   mensalidade paga, implantação recebida ou avulso
+ * @property {string} sourceId
+ * @property {'revenue' | 'cost'} kind
+ * @property {number} amount
+ * @property {string} occurredOn
+ * @property {string} description
+ * @property {string} projectId
+ * @property {'sending' | 'sent' | 'skipped' | null} status   null = falta lançar; sending = envio que não terminou
+ * @property {string | null} remoteId
+ * @property {string | null} linkedAt
+ */
+/** @typedef {{ description: string, amount: number, date: string }} FinanceMatch */
+/**
+ * O que falta lançar, conferido no FinanceSolux (Edge Function financesolux-push).
+ * @typedef {Object} FinanceReview
+ * @property {string} account
+ * @property {string | null} adjustmentOn   último "ajuste de saldo" lá: antes dele, o dinheiro já está no saldo
+ * @property {{ name: string, type: 'receita' | 'despesa' }[]} categories
+ * @property {(FinanceItem & { category: string, matches: FinanceMatch[] })[]} items   category = sugestão para lá
+ */
+
+/**
  * @typedef {Object} CustomerProduct
  * @property {string} id
  * @property {string} customerId
@@ -338,7 +362,14 @@ import { supabaseBackend } from './supabase.js';
  *   daily: (orgId: string, days: number) => Promise<AnalyticsDay[]>,
  *   top: (orgId: string, days: number) => Promise<AnalyticsTop[]>,
  * }} analytics      track é o mesmo que os produtos chamam (só precisa da chave de coleta)
- * @property {{ summary: (orgId: string) => Promise<FinanceSummary> }} finance   Edge Function financesolux-summary
+ * @property {{
+ *   summary: (orgId: string) => Promise<FinanceSummary>,
+ *   items: (orgId: string) => Promise<FinanceItem[]>,
+ *   review: (orgId: string) => Promise<FinanceReview>,
+ *   send: (orgId: string, item: { source: string, sourceId: string, category: string }) => Promise<void>,
+ *   skip: (orgId: string, item: { source: string, sourceId: string }) => Promise<void>,
+ *   clear: (orgId: string, item: { source: string, sourceId: string }) => Promise<void>,
+ * }} finance   summary lê (financesolux-summary); review/send lançam (financesolux-push); o resto é RPC
  * @property {{ list: (orgId: string, options?: { limit?: number }) => Promise<AuditEntry[]> }} audit
  * @property {{
  *   list: () => Promise<AppNotification[]>,

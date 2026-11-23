@@ -59,6 +59,9 @@ const FIELDS = {
   amount: 'valor',
   occurred_on: 'data',
   paid_on: 'data do pagamento',
+  setup_amount: 'implantação',
+  setup_paid_on: 'implantação recebida em',
+  setup_outside: 'implantação paga antes da empresa',
   note: 'observação',
 };
 
@@ -136,6 +139,12 @@ export function describeAudit({ action, data = {} }) {
       return `corrigiu o pagamento da mensalidade de ${data.name}`;
     case 'billing_payment.deleted':
       return `desfez o pagamento da mensalidade de ${data.name}`;
+    case 'finance_link.sent':
+      return `criou “${data.name}” no FinanceSolux`;
+    case 'finance_link.skipped':
+      return `marcou “${data.name}” como já lançado no FinanceSolux`;
+    case 'finance_link.cleared':
+      return `voltou “${data.name}” para a lista do FinanceSolux`;
   }
   const [entity, verb] = action.split('.');
   const noun = ENTITIES[entity];
@@ -164,4 +173,5 @@ export const AUDIT_GROUPS = [
   { id: 'file', label: 'Arquivos' },
   { id: 'analytics_key', label: 'Analytics' },
   { id: 'integration', label: 'Integrações' },
+  { id: 'finance_link', label: 'FinanceSolux' },
 ];

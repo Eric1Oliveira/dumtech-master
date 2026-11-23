@@ -159,6 +159,42 @@ function orgTable(table, { select, order, ascending = true, normalize, map = (r)
   };
 }
 
+/**
+ * Chama uma Edge Function e traz a mensagem de erro que ela devolveu.
+ * @param {string} name @param {Record<string, unknown>} body @returns {Promise<any>}
+ */
+async function invokeFunction(name, body) {
+  const sb = await getClient();
+  const { data: result, error } = await sb.functions.invoke(name, { body });
+  if (!error) return result;
+  const response = /** @type {any} */ (error).context;
+  let message = error.message;
+  try {
+    const json = await response?.json();
+    if (json?.error) message = json.error;
+  } catch {
+    /* resposta sem JSON */
+  }
+  if (response?.status === 404 || /failed to send a request/i.test(message)) {
+    message = `A Edge Function ${name} ainda não foi publicada neste projeto Supabase.`;
+  }
+  throw new Error(message);
+}
+
+/** Linha de finance_items → FinanceItem. @returns {import('./data.js').FinanceItem} */
+const financeItem = (/** @type {any} */ r) => ({
+  source: r.source,
+  sourceId: r.source_id,
+  kind: r.kind,
+  amount: Number(r.amount),
+  occurredOn: r.occurred_on,
+  description: r.description,
+  projectId: r.project_id,
+  status: r.status ?? null,
+  remoteId: r.remote_id ?? null,
+  linkedAt: r.linked_at ?? null,
+});
+
 /** @type {import('./data.js').Backend} */
 export const supabaseBackend = {
 
@@ -809,22 +845,25 @@ export const supabaseBackend = {
   },
 
   finance: {
-    async summary(orgId) {
+    summary: (orgId) => invokeFunction('financesolux-summary', { org_id: orgId }),
+    async items(orgId) {
       const sb = await getClient();
-      const { data: summary, error } = await sb.functions.invoke('financesolux-summary', { body: { org_id: orgId } });
-      if (!error) return summary;
-      const response = /** @type {any} */ (error).context;
-      let message = error.message;
-      try {
-        const body = await response?.json();
-        if (body?.error) message = body.error;
-      } catch {
-        /* resposta sem JSON */
-      }
-      if (response?.status === 404 || /failed to send a request/i.test(message)) {
-        message = 'A Edge Function financesolux-summary ainda não foi publicada neste projeto Supabase.';
-      }
-      throw new Error(message);
+      return /** @type {any[]} */ (unwrap(await sb.rpc('finance_items', { p_org: orgId }))).map(financeItem);
+    },
+    async review(orgId) {
+      const r = await invokeFunction('financesolux-push', { org_id: orgId, action: 'review' });
+      return { ...r, items: (r.items ?? []).map((/** @type {any} */ i) => ({ ...financeItem(i), category: String(i.category ?? ''), matches: i.matches ?? [] })) };
+    },
+    async send(orgId, { source, sourceId, category }) {
+      await invokeFunction('financesolux-push', { org_id: orgId, action: 'send', source, source_id: sourceId, category });
+    },
+    async skip(orgId, { source, sourceId }) {
+      const sb = await getClient();
+      unwrap(await sb.rpc('finance_link_mark', { p_org: orgId, p_source: source, p_source_id: sourceId, p_status: 'skipped' }));
+    },
+    async clear(orgId, { source, sourceId }) {
+      const sb = await getClient();
+      unwrap(await sb.rpc('finance_link_clear', { p_org: orgId, p_source: source, p_source_id: sourceId }));
     },
   },
 

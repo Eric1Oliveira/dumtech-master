@@ -501,11 +501,34 @@ export async function renderProjectPage({ root, module, signal }, id) {
     setup: async () => {
       const pr = /** @type {Project} */ (p).product;
       try {
-        await data.products.save(org.id, /** @type {any} */ ({ ...pr, setupPaidOn: pr.setupPaidOn ? null : today() }), pr.id);
+        await data.products.save(org.id, /** @type {any} */ ({ ...pr, setupPaidOn: pr.setupPaidOn ? null : today(), setupOutside: false }), pr.id);
         done(pr.setupPaidOn ? 'Recebimento desfeito.' : 'Implantação recebida.');
       } catch (error) {
         toastError(error);
       }
+    },
+    'setup-edit': async () => {
+      const pr = /** @type {Project} */ (p).product;
+      const current = pr.setupOutside ? 'outside' : pr.setupPaidOn ? 'paid' : 'due';
+      const choice = (/** @type {string} */ value, /** @type {string} */ title, /** @type {string} */ text) =>
+        html`<label class="choice"><input type="radio" name="state" value="${value}" ${current === value ? html`checked` : ''}><span><strong>${title}</strong><small>${text}</small></span></label>`;
+      const ok = await openDialog({
+        title: 'Implantação',
+        description: `${pr.name} · ${formatMoney(pr.setupAmount ?? 0)}`,
+        body: html`<div class="choice-row" role="radiogroup" aria-label="Situação da implantação">
+            ${choice('due', 'A receber', 'Ainda não pagou')}
+            ${choice('paid', 'Recebida', 'Entra no Recebido e pode ir para o FinanceSolux')}
+            ${choice('outside', 'Paga antes da empresa', 'Fica registrada como paga, mas não entra nas contas')}
+          </div>
+          <label class="field"><span class="field__label">Paga em</span><input class="input" type="date" name="paidOn" value="${pr.setupPaidOn ?? today()}"></label>
+          <p class="field__hint">Se ela já foi lançada no FinanceSolux e agora não deve contar, apague o lançamento lá também.</p>`,
+        onSubmit: async (form) => {
+          const state = String(form.get('state') ?? current);
+          const paidOn = state === 'due' ? null : String(form.get('paidOn') || today());
+          await data.products.save(org.id, /** @type {any} */ ({ ...pr, setupPaidOn: paidOn, setupOutside: state === 'outside' }), pr.id);
+        },
+      }).catch((e) => (toastError(e), false));
+      if (ok) done('Implantação atualizada.');
     },
     'new-task': async () => {
       if (await editTask(null).catch((e) => (toastError(e), false))) done('Tarefa adicionada.');
@@ -809,8 +832,18 @@ function numbers(s) {
     <div><dt>Mensalidade</dt><dd class="mono">${formatMoney(s.monthly)}</dd><span class="stat-note">${before ? 'combinada · começa ao publicar' : `${formatInteger(s.activeSubs)} cliente${s.activeSubs === 1 ? '' : 's'} pagando`}</span></div>
     <div><dt>Custo/mês</dt><dd class="mono">${s.own ? formatMoney(s.money.monthlyCost) : '—'}</dd><span class="stat-note">${s.own ? 'serviços, com a parte dos compartilhados' : 'sem acesso aos serviços'}</span></div>
     <div><dt>Lucro/mês</dt><dd class="mono ${profit < 0 ? 'is-overdue' : ''}">${s.own ? formatMoney(profit) : '—'}</dd><span class="stat-note">${margin === null ? 'sem mensalidade' : `margem ${margin}%`}</span></div>
-    <div><dt>Implantação</dt><dd class="mono">${pr.setupAmount ? formatMoney(pr.setupAmount) : '—'}</dd><span class="stat-note">${!pr.setupAmount ? 'sem valor único' : pr.setupPaidOn ? `recebida em ${formatDate(pr.setupPaidOn)}` : html`a receber${canDo('products.manage') && pr.status !== 'proposal' ? html` · <button type="button" class="link-action" data-action="setup">Recebi</button>` : ''}`}</span></div>
+    <div><dt>Implantação</dt><dd class="mono">${pr.setupAmount ? formatMoney(pr.setupAmount) : '—'}</dd><span class="stat-note">${setupNote(pr)}</span></div>
   </dl>`;
+}
+
+/** Situação da implantação, com a ação de quem pode mexer. @param {import('../../services/data.js').Product} pr */
+function setupNote(pr) {
+  if (!pr.setupAmount) return 'sem valor único';
+  const manage = canDo('products.manage') && pr.status !== 'proposal';
+  const change = manage ? html` · <button type="button" class="link-action" data-action="setup-edit">Alterar</button>` : '';
+  if (pr.setupOutside) return html`paga antes da empresa · não entra nas contas${change}`;
+  if (pr.setupPaidOn) return html`recebida em ${formatDate(pr.setupPaidOn)}${change}`;
+  return html`a receber${manage ? html` · <button type="button" class="link-action" data-action="setup">Recebi</button>` : ''}`;
 }
 
 /** Selo geral (publicado): Tudo ok / Atenção / Problema, com os motivos. @param {Project} s */

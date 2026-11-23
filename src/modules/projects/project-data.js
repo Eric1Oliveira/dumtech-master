@@ -62,7 +62,8 @@ export function summarizeProject(product, bundle, todayKey = today()) {
     subs,
     monthlyCost,
     startDate: product.startDate,
-    setup: { amount: product.setupAmount, paidOn: product.setupPaidOn },
+    // Paga antes da empresa: aparece no projeto, mas não soma (nem fica "a receber").
+    setup: { amount: product.setupOutside ? null : product.setupAmount, paidOn: product.setupPaidOn },
     entries,
     payments,
     todayKey,

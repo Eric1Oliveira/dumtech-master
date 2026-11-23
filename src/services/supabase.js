@@ -289,8 +289,12 @@ export const supabaseBackend = {
     async listMine() {
       const sb = await getClient();
       const rows = unwrap(await sb.from('memberships').select('role_key, organizations(id, name)').eq('user_id', await userId()));
+      // Liberações do proprietário (ex.: Atividade para gestores). Tabela nova: sem ela, nada extra.
+      const grants = await sb.from('org_permission_grants').select('org_id, role_key, permission_key');
+      const extra = (/** @type {string} */ org, /** @type {string} */ role) =>
+        (grants.data ?? []).filter((g) => g.org_id === org && g.role_key === role).map((g) => g.permission_key);
       return /** @type {any[]} */ (rows)
-        .map((r) => ({ id: r.organizations.id, name: r.organizations.name, role: r.role_key }))
+        .map((r) => ({ id: r.organizations.id, name: r.organizations.name, role: r.role_key, extra: extra(r.organizations.id, r.role_key) }))
         .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
     },
 
@@ -298,6 +302,17 @@ export const supabaseBackend = {
       const sb = await getClient();
       const org = unwrap(await sb.rpc('create_organization', { p_name: name }));
       return { id: org.id, name: org.name };
+    },
+
+    async auditViewers(orgId) {
+      const sb = await getClient();
+      const rows = unwrap(await sb.from('org_permission_grants').select('role_key').eq('org_id', orgId).eq('permission_key', 'audit.view'));
+      return /** @type {any[]} */ (rows).map((r) => r.role_key);
+    },
+
+    async setAuditViewers(orgId, roles) {
+      const sb = await getClient();
+      return unwrap(await sb.rpc('set_audit_viewers', { p_org: orgId, p_roles: roles })) ?? [];
     },
 
     async rename(orgId, name) {

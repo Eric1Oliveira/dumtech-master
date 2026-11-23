@@ -3,6 +3,8 @@
 import { html, setHtml, $ } from '../../shared/utils/dom.js';
 import { formatDateTime, normalize } from '../../shared/utils/format.js';
 import { getState } from '../../core/state.js';
+import { ROLES } from '../../core/permissions.js';
+import { toast, toastError } from '../../shared/components/feedback.js';
 import { data } from '../../services/data.js';
 import { describeAudit, AUDIT_GROUPS } from '../../shared/utils/audit-text.js';
 import { dataTable } from '../../shared/components/table.js';
@@ -19,9 +21,21 @@ export async function render({ root, signal }) {
   let group = '';
   let query = '';
 
+  const owner = org.role === 'owner';
   setHtml(
     root,
-    html`<section class="panel">
+    html`${owner
+        ? html`<section class="panel" aria-labelledby="viewers-title">
+            <header class="panel__head"><div><h2 class="panel__title" id="viewers-title">Quem pode ver a atividade</h2>
+              <p class="panel__hint">Papéis e permissões, Integrações e Sistema são só do proprietário. A atividade você pode liberar para outros cargos.</p></div></header>
+            <form class="viewers" data-viewers>
+              <label class="checkbox"><input type="checkbox" checked disabled> <span>Proprietário (sempre)</span></label>
+              ${ROLES.filter((r) => r.key !== 'owner').map((r) => html`<label class="checkbox"><input type="checkbox" name="role" value="${r.key}"> <span>${r.name}</span></label>`)}
+              <button type="submit" class="btn btn--secondary btn--sm">Salvar</button>
+            </form>
+          </section>`
+        : ''}
+      <section class="panel">
       <header class="panel__head">
         <div class="toolbar">
           <label class="search-field">${icon('search')}<span class="sr-only">Buscar na auditoria</span>
@@ -74,5 +88,27 @@ export async function render({ root, signal }) {
   $('[data-search]', root).addEventListener('input', (e) => ((query = /** @type {HTMLInputElement} */ (e.target).value), draw()), { signal });
   $('[data-group]', root).addEventListener('change', (e) => ((group = /** @type {HTMLSelectElement} */ (e.target).value), draw()), { signal });
   $('[data-refresh]', root).addEventListener('click', load, { signal });
+
+  // Quem pode ver (só o proprietário mexe; o banco confere de novo em set_audit_viewers)
+  const viewers = /** @type {HTMLFormElement | null} */ ($('[data-viewers]', root));
+  if (viewers) {
+    data.orgs.auditViewers(org.id).then((roles) => {
+      for (const box of /** @type {HTMLInputElement[]} */ ([...viewers.querySelectorAll('[name="role"]')])) box.checked = roles.includes(box.value);
+    }).catch(() => {});
+    viewers.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const button = /** @type {HTMLButtonElement} */ (viewers.querySelector('[type=submit]'));
+      button.disabled = true;
+      try {
+        const roles = await data.orgs.setAuditViewers(org.id, new FormData(viewers).getAll('role').map(String));
+        toast(roles.length ? 'Atividade liberada para os cargos marcados.' : 'Atividade só para o proprietário.', 'success');
+        load();
+      } catch (error) {
+        toastError(error);
+      } finally {
+        button.disabled = false;
+      }
+    }, { signal });
+  }
   await load();
 }

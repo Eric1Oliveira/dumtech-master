@@ -136,4 +136,7 @@ export async function acceptPendingInvite() {
 }
 
 /** A pessoa logada pode fazer isto na organização ativa? */
-export const canDo = (/** @type {string} */ permission) => can(getState().org?.role, permission);
+export const canDo = (/** @type {string} */ permission) => {
+  const org = getState().org;
+  return can(org?.role, permission) || Boolean(org?.extra?.includes(permission));
+};

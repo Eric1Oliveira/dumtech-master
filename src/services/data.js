@@ -297,6 +297,8 @@ import { supabaseBackend } from './supabase.js';
  *   listMine: () => Promise<OrgSummary[]>,
  *   create: (name: string) => Promise<{ id: string, name: string }>,
  *   rename: (orgId: string, name: string) => Promise<void>,
+ *   auditViewers: (orgId: string) => Promise<string[]>,
+ *   setAuditViewers: (orgId: string, roles: string[]) => Promise<string[]>,
  * }} orgs
  * @property {{
  *   list: (orgId: string) => Promise<Member[]>,

@@ -130,7 +130,7 @@ export const MODULES = [
       { id: 'roles', name: 'Papéis e permissões', permission: 'roles.view', keywords: 'rbac acesso' },
       { id: 'audit', name: 'Atividade', permission: 'audit.view', keywords: 'auditoria log histórico registro' },
       { id: 'integrations', name: 'Integrações', permission: 'integrations.view', keywords: 'financesolux conectar' },
-      { id: 'environment', name: 'Sistema', keywords: 'supabase ambiente configuração banco saúde' },
+      { id: 'environment', name: 'Sistema', permission: 'system.view', keywords: 'supabase ambiente configuração banco saúde' },
     ],
     load: () => import('./settings/index.js'),
   },

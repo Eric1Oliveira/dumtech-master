@@ -105,7 +105,8 @@ export function describeAudit({ action, data = {} }) {
     case 'project.stage':
       return `levou o projeto “${data.name}” para ${({ proposal: 'Proposta', building: 'Em construção', live: 'Publicado', ended: 'Encerrado' })[data.to] ?? data.to}`;
     case 'settings.updated':
-      return `mudou os ajustes de ${data.name === 'checklist' ? 'construção (checklist)' : 'cobrança'}`;
+      if (data.name === 'audit_viewers') return `mudou quem vê a atividade: só o proprietário${data.roles?.length ? ` e ${data.roles.map((/** @type {string} */ r) => roleName(r)).join(', ')}` : ''}`;
+      return `mudou os ajustes de ${data.name === 'checklist' ? 'construção (checklist)' : data.name === 'telegram' ? 'avisos no celular' : 'cobrança'}`;
     case 'vault.created':
       return 'criou o próprio cofre de senhas';
     case 'vault.rotated':

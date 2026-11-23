@@ -12,6 +12,7 @@
  * @property {string} id
  * @property {string} name
  * @property {import('./permissions.js').RoleKey} role
+ * @property {string[]} [extra]   permissões liberadas pelo proprietário para o meu cargo (ex.: audit.view)
  */
 
 /**

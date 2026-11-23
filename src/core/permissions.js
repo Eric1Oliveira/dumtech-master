@@ -43,23 +43,30 @@ export const PERMISSIONS = [
   { key: 'analytics.manage', description: 'Criar e revogar chaves de coleta' },
   { key: 'finance.view', description: 'Ver os números financeiros (FinanceSolux)' },
   { key: 'finance.manage', description: 'Lançar receitas e despesas no FinanceSolux' },
+  { key: 'system.view', description: 'Ver Ajustes › Sistema (servidor e cópias de segurança)' },
 ];
 
+/** Só o proprietário: Papéis, Atividade (pode liberar a outros cargos), Integrações e Sistema. */
+export const OWNER_ONLY = ['roles.view', 'audit.view', 'integrations.view', 'integrations.manage', 'system.view'];
+/** O que o proprietário pode liberar para outros cargos na própria organização. */
+export const GRANTABLE = ['audit.view'];
+
 const ALL = PERMISSIONS.map((p) => p.key);
+const ALL_BUT_OWNER = ALL.filter((k) => !OWNER_ONLY.includes(k));
 
 /** @type {Record<RoleKey, string[]>} */
 export const ROLE_PERMISSIONS = {
   owner: ALL,
-  admin: ALL,
+  admin: ALL_BUT_OWNER,
   manager: [
-    'dashboard.view', 'members.view', 'roles.view', 'audit.view', 'integrations.view',
+    'dashboard.view', 'members.view',
     'customers.view', 'customers.manage', 'products.view', 'products.manage',
     'proposals.view', 'proposals.manage', 'projects.view', 'projects.manage',
     'infra.view', 'infra.manage', 'automations.view', 'vault.view', 'workspace.view', 'workspace.manage',
     'analytics.view', 'finance.view',
   ],
   member: [
-    'dashboard.view', 'members.view', 'roles.view', 'customers.view', 'customers.manage',
+    'dashboard.view', 'members.view', 'customers.view', 'customers.manage',
     'products.view', 'proposals.view', 'proposals.manage', 'projects.view', 'projects.manage', 'infra.view',
     'workspace.view', 'workspace.manage', 'analytics.view', 'vault.view',
   ],

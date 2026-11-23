@@ -128,17 +128,28 @@ export function responseSeries({ checks, hourly }, range, now = Date.now()) {
 // Dias: 0 = domingo … 6 = sábado. Sem faixa (from/to nulos) = o dia inteiro. Faixa que passa da
 // meia-noite (18h às 2h) vale para o dia em que começa. Igual a public.monitor_in_window (Brasília).
 
-/** @typedef {{ checkDays?: number[] | null, checkFrom?: string | null, checkTo?: string | null }} Schedule */
+/** @typedef {{ checkDays?: number[] | null, checkFrom?: string | null, checkTo?: string | null, checkEvery?: number | null }} Schedule */
+
+/** De quanto em quanto tempo verificar (minutos). Padrão 5, igual ao banco. */
+export const CHECK_EVERY = [1, 5, 10, 15, 30, 60];
+const DEFAULT_EVERY = 5;
+/** @param {Schedule} s */
+const everyOf = (s) => (CHECK_EVERY.includes(Number(s.checkEvery)) ? Number(s.checkEvery) : DEFAULT_EVERY);
+/** "a cada 5 min", "a cada minuto", "a cada 1 h". @param {Schedule} s */
+export const everyText = (s) => {
+  const n = everyOf(s);
+  return n === 1 ? 'a cada minuto' : n === 60 ? 'a cada 1 h' : `a cada ${n} min`;
+};
 
 export const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
 
 /** Horários prontos para escolher na tela. */
 export const SCHEDULE_PRESETS = [
-  { id: 'always', label: 'O dia todo, todo dia', checkDays: ALL_DAYS, checkFrom: null, checkTo: null },
-  { id: 'business', label: 'Comercial: seg a sex, 8h às 18h', checkDays: [1, 2, 3, 4, 5], checkFrom: '08:00', checkTo: '18:00' },
-  { id: 'shop', label: 'Comércio: seg a sáb, 8h às 22h', checkDays: [1, 2, 3, 4, 5, 6], checkFrom: '08:00', checkTo: '22:00' },
-  { id: 'night', label: 'Noite (restaurante): todo dia, 17h às 2h', checkDays: ALL_DAYS, checkFrom: '17:00', checkTo: '02:00' },
+  { id: 'always', label: 'O dia todo', checkDays: ALL_DAYS, checkFrom: null, checkTo: null },
+  { id: 'business', label: 'Comercial', checkDays: [1, 2, 3, 4, 5], checkFrom: '08:00', checkTo: '18:00' },
+  { id: 'shop', label: 'Comércio', checkDays: [1, 2, 3, 4, 5, 6], checkFrom: '08:00', checkTo: '22:00' },
+  { id: 'night', label: 'Noite (restaurante, bar)', checkDays: ALL_DAYS, checkFrom: '17:00', checkTo: '02:00' },
 ];
 
 /** "08:00:00" → "08:00"; vazio → null. @param {unknown} v */
@@ -150,7 +161,7 @@ const hhmm = (v) => {
 /** @param {string} t "HH:MM" */
 const minutesOf = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
 
-/** Valida o horário do formulário. @param {Record<string, any>} input @returns {{ checkDays: number[], checkFrom: string | null, checkTo: string | null }} */
+/** Valida o horário do formulário. @param {Record<string, any>} input @returns {{ checkDays: number[], checkFrom: string | null, checkTo: string | null, checkEvery: number }} */
 export function normalizeSchedule(input) {
   const raw = Array.isArray(input.checkDays) ? input.checkDays : ALL_DAYS;
   const days = [...new Set(raw.map(Number).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort();
@@ -159,7 +170,9 @@ export function normalizeSchedule(input) {
   const to = hhmm(input.checkTo);
   if (Boolean(from) !== Boolean(to)) throw new Error('Informe o início e o fim do horário (ou deixe os dois vazios para o dia todo).');
   if (from && from === to) throw new Error('O início e o fim do horário não podem ser iguais.');
-  return { checkDays: days, checkFrom: from, checkTo: to };
+  const every = input.checkEvery === undefined || input.checkEvery === null || input.checkEvery === '' ? DEFAULT_EVERY : Number(input.checkEvery);
+  if (!CHECK_EVERY.includes(every)) throw new Error('Escolha de quanto em quanto tempo verificar: 1, 5, 10, 15, 30 ou 60 minutos.');
+  return { checkDays: days, checkFrom: from, checkTo: to, checkEvery: every };
 }
 
 /** @param {Schedule} s */
@@ -206,11 +219,11 @@ export function scheduleText(s) {
   return from && to ? `${d}, ${hourText(from)} às ${hourText(to)}` : `${d}, 24 h`;
 }
 
-/** Verificações por mês (1 por minuto) — para mostrar a economia. @param {Schedule} s */
+/** Verificações por mês (no horário, uma a cada checkEvery minutos) — para mostrar a economia. @param {Schedule} s */
 export function checksPerMonth(s) {
   const days = daysOf(s).length;
   const from = hhmm(s.checkFrom);
   const to = hhmm(s.checkTo);
   const perDay = from && to ? (minutesOf(to) - minutesOf(from) + 1440) % 1440 : 1440;
-  return Math.round(((days * perDay) / 7) * 30.44);
+  return Math.round(((days * perDay) / 7 / everyOf(s)) * 30.44);
 }

@@ -7,7 +7,7 @@ import { formatDate, formatMoney, formatDateTime } from '../../shared/utils/form
 import { getState } from '../../core/state.js';
 import { ASSET_KINDS, COST_PERIODS, SPLIT_RULES, daysUntil, isPublicHttps, normalizeAsset } from '../../core/infra.js';
 import { serviceCosts } from '../../core/costs.js';
-import { SCHEDULE_PRESETS, WEEKDAYS, normalizeSchedule, scheduleText, inWindow, checksPerMonth } from '../../core/monitor.js';
+import { SCHEDULE_PRESETS, WEEKDAYS, CHECK_EVERY, normalizeSchedule, scheduleText, everyText, inWindow, checksPerMonth } from '../../core/monitor.js';
 import { registrableDomain, lookupExpiration } from '../../core/rdap.js';
 import { labelOf } from '../../core/validate.js';
 import { data } from '../../services/data.js';
@@ -66,11 +66,11 @@ export async function editSchedule(monitor) {
   const preset = SCHEDULE_PRESETS.find((p) => scheduleText(p) === scheduleText(monitor))?.id ?? 'custom';
   const days = monitor.checkDays?.length ? monitor.checkDays : [0, 1, 2, 3, 4, 5, 6];
   const pending = openDialog({
-    title: 'Horário de verificação',
+    title: 'Quando verificar',
     description: `${monitor.label}. Fora do horário o servidor não verifica nem grava nada (economiza o banco). "Verificar agora" funciona a qualquer hora. Horário de Brasília.`,
     wide: true,
     body: html`<div class="choice-row sched-presets" role="radiogroup" aria-label="Horários prontos">
-        ${SCHEDULE_PRESETS.map((p) => html`<label class="choice"><input type="radio" name="preset" value="${p.id}" ${preset === p.id ? html`checked` : ''}><span><strong>${p.label}</strong><small>${checksPerMonth(p).toLocaleString('pt-BR')} verificações/mês</small></span></label>`)}
+        ${SCHEDULE_PRESETS.map((p) => html`<label class="choice"><input type="radio" name="preset" value="${p.id}" ${preset === p.id ? html`checked` : ''}><span><strong>${p.label}</strong><small>${scheduleText(p)}</small></span></label>`)}
         <label class="choice"><input type="radio" name="preset" value="custom" ${preset === 'custom' ? html`checked` : ''}><span><strong>Personalizado</strong><small>Escolha os dias e as horas</small></span></label>
       </div>
       <fieldset class="sched-days"><legend class="field__label">Dias</legend>
@@ -80,11 +80,15 @@ export async function editSchedule(monitor) {
         <label class="field"><span class="field__label">Das</span><input class="input" type="time" name="from" value="${monitor.checkFrom?.slice(0, 5) ?? ''}"><span class="field__hint">Vazio = o dia todo</span></label>
         <label class="field"><span class="field__label">Até</span><input class="input" type="time" name="to" value="${monitor.checkTo?.slice(0, 5) ?? ''}"><span class="field__hint">Pode passar da meia-noite (ex.: 17h às 2h)</span></label>
       </div>
+      <fieldset class="sched-days"><legend class="field__label">Verificar</legend>
+        ${CHECK_EVERY.map((n) => html`<label class="sched-day"><input type="radio" name="every" value="${n}" ${(monitor.checkEvery ?? 5) === n ? html`checked` : ''}><span>${n === 1 ? '1 min' : n === 60 ? '1 h' : `${n} min`}</span></label>`)}
+      </fieldset>
+      <p class="field__hint">Queda é confirmada com 2 falhas seguidas: a cada 5 min, em 5 a 10 minutos.</p>
       <p class="notice sched-summary" data-sched-summary></p>
       ${all.length > 1 ? html`<label class="checkbox"><input type="checkbox" name="all"> <span>Usar este horário em todos os ${all.length} monitores</span></label>` : ''}`,
     submitLabel: 'Salvar horário',
     onSubmit: async (form) => {
-      const schedule = normalizeSchedule({ checkDays: form.getAll('day'), checkFrom: form.get('from'), checkTo: form.get('to') });
+      const schedule = normalizeSchedule({ checkDays: form.getAll('day'), checkFrom: form.get('from'), checkTo: form.get('to'), checkEvery: form.get('every') });
       const targets = form.get('all') === 'on' ? all : [monitor];
       for (const m of targets) await data.monitors.save(org.id, /** @type {any} */ ({ ...m, ...schedule }), m.id);
     },
@@ -121,10 +125,10 @@ function scheduleSummary(form) {
   if (!box) return;
   const f = new FormData(form);
   try {
-    const s = normalizeSchedule({ checkDays: f.getAll('day'), checkFrom: f.get('from'), checkTo: f.get('to') });
+    const s = normalizeSchedule({ checkDays: f.getAll('day'), checkFrom: f.get('from'), checkTo: f.get('to'), checkEvery: f.get('every') });
     const n = checksPerMonth(s);
-    const full = checksPerMonth({});
-    box.textContent = `Verifica ${scheduleText(s)}: cerca de ${n.toLocaleString('pt-BR')} verificações por mês${n < full ? ` (${Math.round((1 - n / full) * 100)}% a menos que o dia todo)` : ''}.`;
+    const full = checksPerMonth({ checkEvery: 1 });
+    box.textContent = `Verifica ${scheduleText(s)}, ${everyText(s)}: cerca de ${n.toLocaleString('pt-BR')} verificações por mês${n < full ? ` (${Math.round((1 - n / full) * 100)}% a menos que o dia todo a cada minuto)` : ''}.`;
     box.classList.remove('notice--warn');
   } catch (error) {
     box.textContent = /** @type {Error} */ (error).message;
@@ -350,7 +354,7 @@ export async function render({ root, module, signal }) {
           const m = monitors.find((x) => x.assetId === a.id);
           if (!m) return muted();
           return manage && m.enabled
-            ? html`<span class="person">${monitorBadge(m)}<button type="button" class="link-action sched-link" data-action="schedule" data-id="${m.id}" title="Horário de verificação">${scheduleText(m)}</button></span>`
+            ? html`<span class="person">${monitorBadge(m)}<button type="button" class="link-action sched-link" data-action="schedule" data-id="${m.id}" title="Quando verificar">${scheduleText(m)} · ${everyText(m)}</button></span>`
             : monitorBadge(m);
         },
       },

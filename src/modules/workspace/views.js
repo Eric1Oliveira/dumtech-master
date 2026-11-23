@@ -13,9 +13,11 @@ import { TASK_STATUS } from '../../core/projects.js';
 import { PRODUCT_STATUS } from '../../core/catalog.js';
 import {
   PROJECT_STATUS, PROJECT_BOARD, CLIENT_BUCKET, DOC_TYPES, PRIORITIES, priorityOf, pageIconName,
-  progressOf, projectPageOf, monthGrid, parseQuickTask,
+  progressOf, projectPageOf, monthGrid, parseQuickTask, spokenToQuick,
 } from '../../core/notebook.js';
 import { data } from '../../services/data.js';
+import { aiWrite } from '../../shared/components/ai-write.js';
+import { splitTaskMessages, parseSteps } from '../../core/ai-prompts.js';
 
 /** @typedef {import('../../services/data.js').PageMeta} PageMeta */
 /** @typedef {import('../../services/data.js').Task} Task */
@@ -323,6 +325,7 @@ export function renderTasks(main, ctx, scope = {}) {
               <span class="qa__icon" aria-hidden="true">${icon('plus')}</span>
               <input class="qa__input" name="q" autocomplete="off" placeholder="${scoped ? 'Nova tarefa do projeto… ex.: Revisar textos @Bia sexta !alta' : 'Nova tarefa… ex.: Revisar layout @Bia sexta !alta #Site Padaria'}" aria-label="Nova tarefa">
               <span class="qa__preview" data-preview></span>
+              <button type="button" class="icon-btn qa__mic" data-nt="dictate" title="Ditar a tarefa" aria-label="Ditar a tarefa">${icon('mic')}</button>
               <button type="submit" class="btn btn--primary btn--sm">Adicionar</button>
             </form>`
           : ''}
@@ -411,6 +414,20 @@ export function renderTasks(main, ctx, scope = {}) {
       remember('tasks.done', '1');
       return draw();
     }
+    if (el.closest('[data-nt="dictate"]')) {
+      try {
+        const { dictate } = await import('./dictate.js');
+        const text = await dictate({ title: 'Ditar tarefa', hint: 'Ex.: "Revisar o layout pra Bia até sexta, prioridade alta".' });
+        const input = /** @type {HTMLInputElement | null} */ (main.querySelector('[data-quick] [name="q"]'));
+        if (!text || !input) return;
+        input.value = spokenToQuick(text, ctx.members);
+        preview();
+        input.focus();
+      } catch (error) {
+        toastError(error);
+      }
+      return;
+    }
     const monthBtn = /** @type {HTMLElement | null} */ (el.closest('[data-month]'));
     if (monthBtn) {
       const step = Number(monthBtn.dataset.month);
@@ -493,7 +510,12 @@ export function taskPanel(t, ctx, opts) {
   const panel = createElement(html`<aside class="tp" role="dialog" aria-label="Tarefa" tabindex="-1">
     <header class="tp__head">
       <button type="button" class="icon-btn" data-tp="close" aria-label="Fechar">${icon('x')}</button>
-      ${ctx.canTasks ? html`<button type="button" class="icon-btn" data-tp="delete" aria-label="Excluir tarefa" title="Excluir">${icon('trash')}</button>` : ''}
+      ${ctx.canTasks
+        ? html`<span class="tp__tools">
+            <button type="button" class="btn btn--ghost btn--sm" data-tp="split" title="A IA divide em tarefas menores">${icon('sparkles')}<span>Dividir em partes</span></button>
+            <button type="button" class="icon-btn" data-tp="delete" aria-label="Excluir tarefa" title="Excluir">${icon('trash')}</button>
+          </span>`
+        : ''}
     </header>
     <textarea class="tp__title" name="title" rows="1" maxlength="200" ${dis}>${t.title}</textarea>
     <dl class="props">
@@ -529,6 +551,27 @@ export function taskPanel(t, ctx, opts) {
       toastError(error);
     }
   };
+  /** A IA propõe os passos; a pessoa revisa e cada linha vira uma tarefa do mesmo projeto. */
+  const splitTask = async () => {
+    const text = await aiWrite(splitTaskMessages(t.title, t.description ?? ''), { title: 'Dividir em partes', useLabel: 'Criar as tarefas', maxTokens: 350 });
+    if (!text) return;
+    const steps = parseSteps(text);
+    if (!steps.length) return toast('Não achei passos no texto. Deixe um por linha.', 'info');
+    try {
+      for (const [i, stepTitle] of steps.entries()) {
+        const input = {
+          title: stepTitle, status: 'todo', assigneeId: t.assigneeId ?? null, dueDate: t.dueDate ?? null, priority: t.priority ?? null,
+          description: `Parte de “${t.title}”.`, position: i, productId: t.productId ?? null, pageId: t.pageId ?? null,
+        };
+        const id = await data.tasks.save(ctx.org.id, /** @type {any} */ (input));
+        ctx.tasks.push(/** @type {any} */ ({ ...input, id, assigneeName: t.assigneeName, projectName: t.projectName, pageTitle: t.pageTitle, doneAt: null, createdAt: new Date().toISOString() }));
+      }
+      toast(`${steps.length} tarefas criadas a partir de “${t.title}”.`, 'success');
+      close();
+    } catch (error) {
+      toastError(error);
+    }
+  };
   let titleTimer = 0;
   panel.addEventListener('change', (e) => {
     const el = /** @type {HTMLInputElement} */ (e.target);
@@ -549,6 +592,7 @@ export function taskPanel(t, ctx, opts) {
     const btn = /** @type {HTMLElement | null} */ (/** @type {HTMLElement} */ (e.target).closest('[data-tp]'));
     if (!btn) return;
     if (btn.dataset.tp === 'close') return close();
+    if (btn.dataset.tp === 'split') return splitTask();
     if (btn.dataset.tp === 'delete' && (await confirmDialog({ title: 'Excluir tarefa?', message: `“${t.title}” sai de todas as listas.`, confirmLabel: 'Excluir', danger: true }))) {
       try {
         await data.tasks.remove(ctx.org.id, t.id);

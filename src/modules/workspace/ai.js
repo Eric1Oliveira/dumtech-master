@@ -4,6 +4,9 @@
 // Os modelos vêm do Hugging Face na primeira vez e ficam no cache do navegador. O áudio e o texto
 // da reunião nunca saem deste computador. Sem WebGPU (ou com a IA desligada) a ata sai por regras.
 
+import { confirmDialog } from '../../shared/components/dialog.js';
+import { toast } from '../../shared/components/feedback.js';
+
 const LEVEL_KEY = 'dum.caderno.ai';
 const ACCEPT_KEY = 'dum.caderno.ai.ok';
 
@@ -37,9 +40,9 @@ export function gpu() {
   return gpuInfo;
 }
 
-/** Pergunta uma vez por modelo antes do download grande. @param {'whisper' | 'llm'} which */
+/** Pergunta uma vez por modelo antes do download grande. @param {'whisper' | 'llm' | 'embed'} which */
 export const accepted = (which) => localStorage.getItem(`${ACCEPT_KEY}.${which}.${aiLevel()}`) === '1';
-/** @param {'whisper' | 'llm'} which */
+/** @param {'whisper' | 'llm' | 'embed'} which */
 export const accept = (which) => localStorage.setItem(`${ACCEPT_KEY}.${which}.${aiLevel()}`, '1');
 
 /** Apaga os modelos baixados (libera espaço). */
@@ -49,6 +52,25 @@ export async function clearModels() {
   for (const key of Object.keys(localStorage)) if (key.startsWith(ACCEPT_KEY)) localStorage.removeItem(key);
   transcriber.reset();
   minutesModel.reset();
+  embedder.reset();
+}
+
+/** Pergunta (uma vez) antes de baixar o Whisper (reuniões e ditado). */
+export async function okToDownloadWhisper() {
+  if (aiLevel() === 'off') {
+    toast('A IA local está desligada. Ligue em Caderno › IA local.', 'info');
+    return false;
+  }
+  if (accepted('whisper')) return true;
+  const g = await gpu();
+  const size = !g.webgpu ? 'cerca de 80 MB' : aiLevel() === 'light' ? 'cerca de 250 MB' : 'cerca de 600 MB';
+  const ok = await confirmDialog({
+    title: 'Baixar o modelo de transcrição?',
+    message: `Na primeira vez o Master baixa o Whisper (${size}). Ele fica guardado neste navegador e roda aqui: o áudio não vai para nenhum servidor.${g.webgpu ? '' : ' Este navegador não tem WebGPU: a transcrição vai ser mais lenta.'}`,
+    confirmLabel: 'Baixar e continuar',
+  });
+  if (ok) accept('whisper');
+  return ok;
 }
 
 /** Quanto os modelos ocupam (aprox.). */
@@ -69,7 +91,7 @@ function workerClient(url) {
   /** @type {Worker | null} */
   let worker = null;
   let seq = 0;
-  /** @type {Map<number, { resolve: (v: any) => void, reject: (e: Error) => void }>} */
+  /** @type {Map<number, { resolve: (v: any) => void, reject: (e: Error) => void, onToken?: ((text: string) => void) | null }>} */
   const pending = new Map();
   /** @type {((p: any) => void) | null} */
   let progress = null;
@@ -84,6 +106,7 @@ function workerClient(url) {
     worker = new Worker(url, { type: 'module' });
     worker.onmessage = ({ data }) => {
       if (data.type === 'progress') return progress?.(data);
+      if (data.type === 'token') return pending.get(data.id)?.onToken?.(data.text);
       const p = pending.get(data.id);
       if (!p) return;
       pending.delete(data.id);
@@ -94,12 +117,12 @@ function workerClient(url) {
     return worker;
   };
   return {
-    /** @param {string} type @param {Record<string, any>} [payload] @param {Transferable[]} [transfer] @returns {Promise<any>} */
-    call(type, payload = {}, transfer = []) {
+    /** @param {string} type @param {Record<string, any>} [payload] @param {Transferable[]} [transfer] @param {((text: string) => void) | null} [onToken] @returns {Promise<any>} */
+    call(type, payload = {}, transfer = [], onToken = null) {
       const w = ensure();
       const id = ++seq;
       return new Promise((resolve, reject) => {
-        pending.set(id, { resolve, reject });
+        pending.set(id, { resolve, reject, onToken });
         w.postMessage({ id, type, ...payload }, transfer);
       });
     },
@@ -114,10 +137,35 @@ function workerClient(url) {
 }
 
 const transcriberWorker = workerClient(new URL('../../workers/transcriber.js', import.meta.url));
+const embedWorker = workerClient(new URL('../../workers/embedder.js', import.meta.url));
+
+let embedReady = false;
+/**
+ * Busca pelo sentido: modelo pequeno multilíngue de frases (~120 MB na 1ª vez), roda em WASM (não precisa de
+ * placa de vídeo). Escolhido por separar bem no português: assunto certo ~0,35–0,5; sem relação < 0,2.
+ */
+export const embedder = {
+  /** @param {(text: string, pct: number | null) => void} report */
+  async load(report) {
+    if (aiLevel() === 'off') throw new Error('A IA local está desligada (Caderno › IA local).');
+    if (embedReady) return;
+    embedWorker.onProgress(downloadTracker(report, 'busca'));
+    await embedWorker.call('load', { model: 'Xenova/paraphrase-multilingual-MiniLM-L12-v2' });
+    embedReady = true;
+  },
+  /** @param {string[]} texts @returns {Promise<number[][]>} */
+  embed(texts) {
+    return embedWorker.call('embed', { texts: texts.map((t) => t.slice(0, 1500)) });
+  },
+  reset() {
+    embedReady = false;
+    embedWorker.reset();
+  },
+};
 const minutesWorker = workerClient(new URL('../../workers/minutes-llm.js', import.meta.url));
 
 /** Soma o progresso de vários arquivos baixados. */
-function downloadTracker(/** @type {(text: string, pct: number | null) => void} */ report) {
+function downloadTracker(/** @type {(text: string, pct: number | null) => void} */ report, label = 'transcrição') {
   /** @type {Map<string, { loaded: number, total: number }>} */
   const files = new Map();
   return (/** @type {any} */ p) => {
@@ -125,8 +173,8 @@ function downloadTracker(/** @type {(text: string, pct: number | null) => void} 
       files.set(p.file, { loaded: p.loaded ?? 0, total: p.total ?? 0 });
       const loaded = [...files.values()].reduce((s, f) => s + f.loaded, 0);
       const total = [...files.values()].reduce((s, f) => s + f.total, 0);
-      if (total > 1_000_000) report(`Baixando o modelo de transcrição: ${Math.round((loaded / total) * 100)}% (${Math.round(loaded / 1e6)} de ${Math.round(total / 1e6)} MB) — só na primeira vez`, loaded / total);
-    } else if (p.status === 'ready') report('Modelo de transcrição pronto.', 1);
+      if (total > 1_000_000) report(`Baixando o modelo de ${label}: ${Math.round((loaded / total) * 100)}% (${Math.round(loaded / 1e6)} de ${Math.round(total / 1e6)} MB) — só na primeira vez`, loaded / total);
+    } else if (p.status === 'ready') report(`Modelo de ${label} pronto.`, 1);
   };
 }
 
@@ -195,10 +243,11 @@ export const minutesModel = {
    * @param {{ role: 'system' | 'user', content: string }[]} messages
    * @param {object | null} schema   null = texto livre
    * @param {number} [maxTokens]
+   * @param {((text: string) => void) | null} [onToken]   recebe o texto enquanto é escrito
    * @returns {Promise<string>}
    */
-  chat(messages, schema, maxTokens = 900) {
-    return minutesWorker.call('chat', { messages, schema, maxTokens });
+  chat(messages, schema, maxTokens = 900, onToken = null) {
+    return minutesWorker.call('chat', { messages, schema, maxTokens, stream: Boolean(onToken) }, [], onToken);
   },
   reset() {
     llmModel = '';

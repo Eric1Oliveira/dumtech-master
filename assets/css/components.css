@@ -887,7 +887,7 @@ button.tag:hover { background: var(--accent-soft); color: var(--accent); }
   .page-head { align-items: center; text-align: center; }
   .page-head > div:first-child { width: 100%; }
   .page-head .eyebrow, .page-sub--row { justify-content: center; }
-  .page-actions { width: 100%; }
+  .page-actions { width: 100%; flex-wrap: wrap; }
   .page-actions .btn { flex: 1; }
   .panel { padding-inline: var(--s-4); --panel-x: var(--s-4); }
   .panel__head { flex-direction: column; align-items: stretch; }
@@ -1173,3 +1173,23 @@ body:has(.assistant) .toasts { right: calc(min(420px, 100vw - 32px) + 32px); }
 /* Atividade: quem pode ver (só o proprietário mexe) */
 .viewers { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3) var(--s-5); }
 .viewers .btn { margin-left: auto; }
+
+/* IA local: janela "Gerar com IA" e leitura de imagem/PDF ------------------------ */
+.aiw { display: grid; gap: var(--s-3); }
+.aiw__bar { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); flex-wrap: wrap; min-height: 32px; }
+.aiw__status { display: inline-flex; align-items: center; gap: var(--s-2); min-width: 0; font-size: var(--fs-sm); color: var(--text-2); }
+.aiw__dot { flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.aiw__status[data-tone='ok'] .aiw__dot { background: var(--ok); animation: none; }
+.aiw__status[data-tone='error'] { color: var(--danger); }
+.aiw__status[data-tone='error'] .aiw__dot { background: var(--danger); animation: none; }
+.aiw__tools { display: inline-flex; gap: var(--s-1); }
+.aiw__progress { display: block; height: 4px; border-radius: 99px; background: var(--bg-sunken); overflow: hidden; }
+.aiw__progress > span { display: block; width: 0; height: 100%; background: var(--accent); transition: width 200ms linear; }
+.aiw__text { min-height: 280px; resize: vertical; font-size: var(--fs-sm); line-height: 1.6; }
+.aiw__out { max-height: 52vh; overflow: auto; padding: var(--s-3) var(--s-4); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg-sunken); line-height: 1.6; }
+.aiw__out:empty::before { content: 'A IA vai escrever aqui…'; color: var(--text-3); }
+.aiw__out.is-writing::after { content: ''; display: inline-block; width: 7px; height: 1em; margin-left: 2px; vertical-align: text-bottom; background: var(--accent); animation: pulse 0.9s steps(2) infinite; }
+.aiw__text.is-writing { caret-color: transparent; }
+.aiw__src { margin-top: var(--s-1); }
+.aiw__sources { display: grid; gap: 2px; margin: var(--s-1) 0 0; padding-left: 1.3em; font-size: var(--fs-sm); }
+@media (prefers-reduced-motion: reduce) { .aiw__dot, .aiw__out.is-writing::after { animation: none; } }

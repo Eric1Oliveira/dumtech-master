@@ -36,6 +36,8 @@ import { PAGE_ICONS, ICON_COLORS, COLOR_LABEL, PROJECT_STATUS, DOC_TYPES, normal
 const EXPANDED_KEY = 'dum.caderno.expanded';
 const FAV_KEY = 'caderno.favorites';
 const LOCK_MS = 70_000;
+/** Busca pelo sentido: parecença mínima (0 a 1) para a página entrar como fonte da resposta. */
+const SENSE_MIN = 0.33;
 /** Seções do Caderno (como o menu lateral do Notion). */
 const SECTIONS = /** @type {const} */ ([
   { key: 'projetos', label: 'Projetos', icon: 'folder' },
@@ -192,7 +194,8 @@ export async function render(ctx) {
         html`<p class="cad-group">Resultados para “${q}”</p>
           ${found.length
             ? found.map((p) => html`<div class="cad-item" data-depth="0"><span class="cad-caret cad-caret--none"></span><a class="cad-item__link" href="#/workspace/${/** @type {PageMeta} */ (p).id}">${pageIcon(/** @type {PageMeta} */ (p))}<span class="cad-item__title">${pageTitle(/** @type {PageMeta} */ (p))}</span></a></div>`)
-            : html`<p class="cad-none">Nada encontrado</p>`}`,
+            : html`<p class="cad-none">Nada encontrado</p>`}
+          ${q.length >= 3 ? html`<button type="button" class="cad-sense" data-action="sense-search" title="Acha páginas pelo assunto, mesmo sem a palavra exata">${icon('sparkles')}<span>Buscar pelo sentido</span></button><div data-sense></div>` : ''}`,
       );
     }, 250);
   }, { signal });
@@ -228,6 +231,33 @@ export async function render(ctx) {
     },
     'ai-settings': () => aiSettings(),
     'ask-notebook': () => askNotebook(),
+    'sense-search': async (el) => {
+      const q = /** @type {HTMLInputElement | null} */ ($('[data-search]', root))?.value.trim() ?? '';
+      if (q.length < 3) return;
+      const sem = await import('./semantic.js');
+      if (!(await sem.semanticAllowed())) return;
+      const btn = /** @type {HTMLButtonElement} */ (el);
+      const label = /** @type {HTMLElement} */ (btn.querySelector('span'));
+      btn.disabled = true;
+      try {
+        const ranked = (await sem.semanticRank(q, await sem.pageTexts(org.id, alive()), (t) => (label.textContent = t))).slice(0, 8);
+        const box = $('[data-sense]', root);
+        if (signal.aborted || !box) return;
+        btn.hidden = true;
+        setHtml(
+          box,
+          html`<p class="cad-group">Pelo sentido</p>
+            ${ranked.map((d) => {
+              const pm = byId.get(d.id);
+              return pm ? html`<div class="cad-item" data-depth="0"><span class="cad-caret cad-caret--none"></span><a class="cad-item__link" href="#/workspace/${pm.id}">${pageIcon(pm)}<span class="cad-item__title">${pageTitle(pm)}</span></a></div>` : '';
+            })}`,
+        );
+      } catch (error) {
+        toastError(error);
+        label.textContent = 'Buscar pelo sentido';
+        btn.disabled = false;
+      }
+    },
     'task-done': async (el) => {
       const t = tasks.find((x) => x.id === el.dataset.id);
       if (!t) return;
@@ -251,17 +281,24 @@ export async function render(ctx) {
     let answer = null;
     await openDialog({
       title: 'Perguntar ao Caderno',
-      description: 'A IA local lê as páginas e atas mais ligadas à pergunta e responde com as fontes.',
-      body: html`<label class="field"><span class="field__label">Pergunta</span><input class="input" name="q" required maxlength="300" placeholder="Ex.: o que ficou combinado com a Padaria Sol?" autocomplete="off"></label>`,
+      description: 'A IA local acha as páginas e atas ligadas à pergunta, mesmo escritas com outras palavras, e responde com as fontes.',
+      body: html`<label class="field"><span class="field__label">Pergunta</span><input class="input" name="q" required maxlength="300" placeholder="Ex.: o que ficou combinado com a Padaria Sol?" autocomplete="off"></label>
+        <p class="field__hint" data-ask-status aria-live="polite"></p>`,
       submitLabel: 'Perguntar',
       onSubmit: async (form) => {
         question = String(form.get('q') ?? '').trim();
         if (question.length < 4) throw new Error('Escreva a pergunta.');
-        const found = await data.pages.search(org.id, question.split(/\s+/).sort((a, b) => b.length - a.length)[0]).catch(() => []);
-        const ids = new Set([...found.map((f) => f.id), ...alive().map((p) => p.id)]);
-        const loaded = await Promise.all([...ids].slice(0, 40).map((id) => data.pages.get(org.id, id).catch(() => null)));
-        const all = loaded.filter(Boolean).map((p) => ({ id: /** @type {any} */ (p).id, title: pageTitle(/** @type {any} */ (p)), text: `${blocksToText(/** @type {any} */ (p).content)}${/** @type {any} */ (p).meeting?.transcript?.length ? `\n${transcriptText(/** @type {any} */ (p).meeting.transcript)}` : ''}` }));
-        sources = scorePages(question, all).slice(0, 4);
+        const status = /** @type {HTMLElement | null} */ (document.querySelector('dialog[open] [data-ask-status]'));
+        const sem = await import('./semantic.js');
+        const docs = await sem.pageTexts(org.id, alive());
+        // Pelo sentido (se a pessoa liberou o modelo de busca) + pelas palavras; sem repetir.
+        /** @type {typeof docs} */
+        let bySense = [];
+        if (await sem.semanticAllowed()) {
+          bySense = (await sem.semanticRank(question, docs, (t) => status && (status.textContent = t))).filter((d) => d.score >= SENSE_MIN).slice(0, 3);
+        }
+        const seen = new Set();
+        sources = [...bySense, ...scorePages(question, docs)].filter((d) => !seen.has(d.id) && Boolean(seen.add(d.id))).slice(0, 4);
         if (!sources.length) throw new Error('Não achei páginas sobre isso no Caderno.');
       },
     });
@@ -530,6 +567,7 @@ export async function render(ctx) {
           <div class="pg-bar__tools">
             <span class="pg-status" data-status role="status">${readOnly ? (p.archivedAt ? 'Na lixeira' : 'Só leitura') : 'Salvo'}</span>
             <button type="button" class="icon-btn pg-fav ${isFav() ? 'is-on' : ''}" data-page="fav" aria-pressed="${isFav()}" title="${isFav() ? 'Tirar dos favoritos' : 'Favoritar'}" aria-label="Favoritar">${icon('star')}</button>
+            ${manage ? html`<button type="button" class="icon-btn" data-page="dictate" title="Ditar no fim da página" aria-label="Ditar no fim da página">${icon('mic')}</button>` : ''}
             <button type="button" class="icon-btn" data-page="history" title="Histórico de versões" aria-label="Histórico">${icon('clock')}</button>
             <button type="button" class="icon-btn" data-page="more" title="Mais opções" aria-label="Mais opções" aria-expanded="false">${icon('moreH')}</button>
           </div>
@@ -912,6 +950,15 @@ export async function render(ctx) {
           btn.setAttribute('aria-pressed', String(isFav()));
           drawTree();
         }
+        if (action === 'dictate') {
+          if (readOnly) return toast('A página está só para leitura agora.', 'info');
+          const { dictate } = await import('./dictate.js');
+          const text = await dictate({ title: 'Ditar na página' });
+          if (!text) return;
+          editor.append(textToBlocks(text));
+          save(true);
+          toast('Texto ditado inserido no fim da página.', 'success');
+        }
         if (action === 'unlock') {
           readOnly = false;
           editor.setReadOnly(false);
@@ -977,6 +1024,7 @@ export async function render(ctx) {
         manage && !readOnly ? ['ai-summary', 'IA: resumir a página'] : null,
         manage && !readOnly ? ['ai-tasks', 'IA: achar as tarefas'] : null,
         manage && !readOnly ? ['ai-draft', 'IA: escrever rascunho pelo título'] : null,
+        manage && !readOnly ? ['read-file', 'Ler texto de imagem ou PDF'] : null,
         ['markdown', 'Baixar como Markdown'],
         ['copy', 'Copiar link'],
         manage && !p.archivedAt ? ['trash', 'Mover para a lixeira'] : null,
@@ -1008,6 +1056,16 @@ export async function render(ctx) {
         editor.append([...head, ...textToBlocks(out)]);
         save(true);
         toast('Texto da IA inserido.', 'success');
+      }
+      if (action === 'read-file') {
+        const { pickFile, extractDialog } = await import('./ocr.js');
+        const file = await pickFile();
+        if (!file) return;
+        const text = await extractDialog(file, file.name);
+        if (!text) return;
+        editor.append([textToBlocks(`## ${file.name}`)[0], ...textToBlocks(text)]);
+        save(true);
+        toast('Texto do arquivo inserido.', 'success');
       }
       if (action === 'markdown') {
         const blob = new Blob([blocksToMarkdown(editor.getBlocks(), pageTitle({ title }))], { type: 'text/markdown;charset=utf-8' });

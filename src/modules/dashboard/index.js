@@ -3,7 +3,7 @@
 // projetos publicados com o "No ar".
 
 import { html, setHtml, $, bindActions } from '../../shared/utils/dom.js';
-import { formatDateLong, formatMoney, formatDate } from '../../shared/utils/format.js';
+import { formatDateLong, formatMoney, formatDate, formatDateTime } from '../../shared/utils/format.js';
 import { getState } from '../../core/state.js';
 import { roleName } from '../../core/permissions.js';
 import { billingStatus, monthKey, dueDate, billingMessage, adjustmentDue } from '../../core/billing.js';
@@ -17,8 +17,9 @@ import { canDo } from '../../services/auth.js';
 import { emptyState, loadError, toast, toastError } from '../../shared/components/feedback.js';
 import { openRecordDialog } from '../../shared/components/record-form.js';
 import { icon } from '../../shared/components/icons.js';
-import { aiWrite } from '../../shared/components/ai-write.js';
-import { billingMessages, weekMessages, BILLING_TONES } from '../../core/ai-prompts.js';
+import { aiWrite, sendText } from '../../shared/components/ai-write.js';
+import { billingMessages, weekMessages, outageMessages, BILLING_TONES } from '../../core/ai-prompts.js';
+import { causeText } from '../../core/monitor.js';
 import { openDialog } from '../../shared/components/dialog.js';
 import { markPaid } from '../customers/billing-ui.js';
 import { editAsset, monitorBadge } from '../infrastructure/index.js';
@@ -36,8 +37,10 @@ export async function render({ root, signal }) {
           <h1 class="page-title">${greeting()}${firstName ? `, ${firstName}` : ''}</h1>
           <p class="page-sub">${formatDateLong(new Date())} · ${org.name} · você é ${roleName(org.role)}</p>
         </div>
-        ${html`<div class="page-actions"><button type="button" class="btn btn--secondary" data-action="ai-week">${icon('sparkles')}<span>Resumo da semana</span></button></div>`}
-        ${canDo('products.manage') ? html`<div class="page-actions"><a class="btn btn--primary" href="#/projects/novo">${icon('plus')}<span>Novo projeto</span></a></div>` : ''}
+        <div class="page-actions">
+          <button type="button" class="btn btn--secondary" data-action="ai-week">${icon('sparkles')}<span>Resumo da semana</span></button>
+          ${canDo('products.manage') ? html`<a class="btn btn--primary" href="#/projects/novo">${icon('plus')}<span>Novo projeto</span></a>` : ''}
+        </div>
       </header>
       <div data-numbers><div class="skeleton"></div></div>
       <section class="panel" aria-labelledby="todo-title">
@@ -88,6 +91,11 @@ export async function render({ root, signal }) {
         }))
       : [];
     const customerOf = (/** @type {string} */ productId) => subs.find((s) => s.productId === productId && s.status !== 'cancelled')?.customerName ?? '';
+    /** Cliente do projeto e o telefone dele (aviso de queda). */
+    const contactOf = (/** @type {string | null} */ productId) => {
+      const sub = productId ? subs.find((s) => s.productId === productId && s.status !== 'cancelled') : null;
+      return sub ? { name: sub.customerName, phone: phoneOf(sub.customerId) } : null;
+    };
     const setups = canDo('products.manage')
       ? products.filter((p) => (p.status === 'building' || p.status === 'live') && p.setupAmount && !p.setupPaidOn)
           .map((p) => ({ productId: p.id, name: p.name, customerName: customerOf(p.id), amountLabel: formatMoney(p.setupAmount ?? 0) }))
@@ -115,7 +123,7 @@ export async function render({ root, signal }) {
     const expected = billings.filter((b) => b.state !== 'none').reduce((s, b) => s + (b.sub.monthlyAmount ?? 0), 0);
     const mine = new Set(subs.map((s) => s.id));
     const received = (payments ?? []).filter((p) => p.month === month && mine.has(p.subscriptionId)).reduce((s, p) => s + p.amount, 0);
-    state = { items, adjustments, billings, products, subs, tasks, assets, monitors, billing, month, monthly: mrr(subs), expected, received, cost: canDo('infra.view') ? costs.total : null, seesBilling: Boolean(payments) };
+    state = { items, adjustments, contactOf, billings, products, subs, tasks, assets, monitors, billing, month, monthly: mrr(subs), expected, received, cost: canDo('infra.view') ? costs.total : null, seesBilling: Boolean(payments) };
   };
 
   const draw = () => {
@@ -179,6 +187,12 @@ export async function render({ root, signal }) {
         ${base ? html`<button type="button" class="btn btn--ghost btn--sm" data-action="ai-billing" data-id="${i.id}" title="Mensagem com IA">${icon('sparkles')}</button>` : ''}
         ${canDo('customers.manage') ? html`<button type="button" class="btn btn--quiet btn--sm" data-action="paid" data-id="${i.id}">${icon('check')}<span>Pago</span></button>` : ''}`;
     }
+    if (i.kind === 'down') {
+      const m = state.monitors.find((/** @type {any} */ x) => x.id === i.id);
+      const who = m ? state.contactOf(m.productId) : null;
+      return html`${who ? html`<button type="button" class="btn btn--secondary btn--sm" data-action="ai-outage" data-id="${i.id}" title="A IA escreve o aviso para o cliente">${icon('sparkles')}<span>Avisar cliente</span></button>` : ''}
+        <a class="btn btn--ghost btn--sm" href="${i.href}">Ver</a>`;
+    }
     if (i.kind === 'adjust') {
       return html`<button type="button" class="btn btn--secondary btn--sm" data-action="adjust" data-id="${i.id}">${icon('edit')}<span>Reajustar</span></button>
         <button type="button" class="btn btn--ghost btn--sm" data-action="keep" data-id="${i.id}">Manter</button>`;
@@ -219,6 +233,19 @@ export async function render({ root, signal }) {
       const text = await aiWrite(billingMessages({ cliente: b.customerName, projeto: b.productName, valor: b.amountLabel, vencimento: formatDate(b.due), diasAtraso: late, pix: state.billing?.pixKey, tom }), { title: `Cobrança de ${b.customerName}`, useLabel: 'Abrir no WhatsApp', maxTokens: 400 });
       const link = whatsappLink(item?.phone);
       if (text && link) window.open(`${link}?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+    },
+    'ai-outage': async (el) => {
+      const m = state.monitors.find((/** @type {any} */ x) => x.id === el.dataset.id);
+      const who = m ? state.contactOf(m.productId) : null;
+      if (!m || !who) return;
+      const site = state.products.find((/** @type {any} */ p) => p.id === m.productId)?.name ?? m.label;
+      const text = await aiWrite(outageMessages({
+        customer: who.name,
+        site,
+        since: m.downSince ? formatDateTime(m.downSince) : 'há poucos minutos',
+        cause: m.lastCode ? causeText('http', m.lastCode) : 'o site não respondeu',
+      }), { title: `Aviso de queda para ${who.name}`, useLabel: who.phone ? 'Abrir no WhatsApp' : 'Copiar texto', maxTokens: 300 });
+      if (text) sendText(text, who.phone);
     },
     'ai-week': async () => {
       const s = state;

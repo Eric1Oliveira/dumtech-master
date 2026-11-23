@@ -61,7 +61,7 @@ export function todayList({ monitors = [], billings = [], setups = [], adjustmen
   for (const m of monitors) {
     if (!m.enabled) continue;
     const href = m.productId ? `#/projects/${m.productId}` : '#/infrastructure';
-    if (m.state === 'down') items.push({ kind: 'down', rank: 0, tone: 'error', title: `${where(m)} fora do ar`, context: m.lastCode ? `HTTP ${m.lastCode} na última verificação` : 'Sem resposta na última verificação', date: null, href });
+    if (m.state === 'down') items.push({ kind: 'down', rank: 0, tone: 'error', title: `${where(m)} fora do ar`, context: m.lastCode ? `HTTP ${m.lastCode} na última verificação` : 'Sem resposta na última verificação', date: null, href, id: m.id });
     else if (m.state === 'unstable' || m.state === 'slow') items.push({ kind: 'unstable', rank: 5, tone: 'warn', title: `${where(m)} ${m.state === 'slow' ? 'lento' : 'instável'}`, context: m.state === 'slow' ? 'Respondendo devagar' : 'Oscilou na última hora', date: null, href });
   }
   for (const b of billings) {

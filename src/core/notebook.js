@@ -167,3 +167,17 @@ export function parseQuickTask(text, { members, projects, todayKey }) {
   const m = /** @type {{ userId: string, name: string } | null} */ (member);
   return { title: title.charAt(0).toUpperCase() + title.slice(1), assigneeId: m?.userId ?? null, assigneeName: m?.name ?? null, priority, dueDate, project };
 }
+
+/**
+ * Ditado → sintaxe do adicionar rápido: "pra Bia" vira @Bia (se for alguém da equipe) e
+ * "prioridade alta" vira !alta. A data falada ("até sexta") o parseQuickTask já entende.
+ * @param {string} text @param {{ name: string }[]} members
+ */
+export function spokenToQuick(text, members) {
+  const firsts = new Set(members.map((m) => fold(m.name).split(' ')[0]).filter(Boolean));
+  let s = ` ${String(text ?? '').replace(/[.!?…]+\s*$/u, '').replace(/\s*[,;]\s*/g, ' ').replace(/\s+/g, ' ').trim()} `;
+  s = s.replace(/\s(?:com\s)?prioridade\s(urgente|alta|m[eé]dia|baixa)(?=\s)/iu, ' !$1');
+  s = s.replace(/\s(?:é\s)?urgente(?=\s)/iu, ' !urgente');
+  s = s.replace(/\s(?:para|pra|pro|com)\s(?:(?:a|o)\s)?(\p{L}+)(?=\s)/giu, (all, name) => (firsts.has(fold(name)) ? ` @${name}` : all));
+  return s.trim();
+}

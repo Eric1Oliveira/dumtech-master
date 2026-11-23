@@ -160,3 +160,57 @@ export function explainMessages(question, facts) {
     { role: 'user', content: `Pergunta: ${question}\n\nDados do sistema:\n${facts.map((f) => `- ${f}`).join('\n') || '- (nenhum dado)'}` },
   ];
 }
+
+/** Relatório da semana para o cliente (fatos já calculados). @param {{ project: string, customer: string, facts: string[] }} r @returns {Msg[]} */
+export function clientReportMessages({ project, customer, facts }) {
+  return [
+    { role: 'system', content: `${BASE} Escreva para o cliente, em tom profissional e próximo, sem termos técnicos e sem emojis. Use os números exatamente como vieram.` },
+    {
+      role: 'user',
+      content: `Escreva o relatório da semana do projeto "${project}" para ${customer || 'o cliente'}: uma saudação curta, o que foi feito (tópicos "- "), `
+        + `a situação do site e os próximos passos. Até 14 linhas. Assine como "Equipe DUMTech".\n\nFatos:\n${facts.map((f) => `- ${f}`).join('\n')}`,
+    },
+  ];
+}
+
+/** Resumo do cliente antes de ligar. @param {string} name @param {string[]} facts @returns {Msg[]} */
+export function customerBriefMessages(name, facts) {
+  return [
+    { role: 'system', content: `${BASE} Use os números exatamente como vieram.` },
+    { role: 'user', content: `Resuma a situação do cliente ${name} para eu me preparar antes de falar com ele: 1 parágrafo curto e depois até 4 tópicos "- " com o que tratar na conversa.\n\nDados:\n${facts.map((f) => `- ${f}`).join('\n')}` },
+  ];
+}
+
+/** Dividir uma tarefa grande em partes. @param {string} title @param {string} description @returns {Msg[]} */
+export function splitTaskMessages(title, description) {
+  return [
+    { role: 'system', content: BASE },
+    { role: 'user', content: `Divida esta tarefa em 3 a 7 passos concretos, um por linha, cada linha começando com "[] " e um verbo no infinitivo. Sem numeração.\n\nTarefa: ${title}${description ? `\nDetalhes: ${description.slice(0, 2000)}` : ''}` },
+  ];
+}
+
+/** Passos devolvidos pela IA → títulos de tarefa. @param {string} text */
+export const parseSteps = (text) =>
+  cleanAi(text)
+    .split('\n')
+    .map((l) => l.replace(/^\s*(?:[-*•]|\d+[.)]|\[\s?[xX]?\])\s*/, '').replace(/^\[\s?\]\s*/, '').trim())
+    .filter((l) => l.length >= 3)
+    .map((l) => (l.charAt(0).toUpperCase() + l.slice(1)).slice(0, 200))
+    .slice(0, 10);
+
+/** Aviso de queda para o cliente. @param {{ customer: string, site: string, since: string, cause: string }} o @returns {Msg[]} */
+export function outageMessages({ customer, site, since, cause }) {
+  return [
+    { role: 'system', content: `${BASE} Escreva mensagens curtas de WhatsApp (até 6 linhas), sem emojis, sem termos técnicos e sem culpar ninguém.` },
+    { role: 'user', content: `Avise ${customer || 'o cliente'} que o site ${site} está fora do ar desde ${since}. Causa técnica: ${cause}. Explique em palavras simples, diga que já estamos resolvendo e que avisamos quando voltar.` },
+  ];
+}
+
+/** Sugerir resposta a uma mensagem do cliente. @param {string} message @param {string} [context] @returns {Msg[]} */
+export function replyMessages(message, context = '') {
+  return [
+    { role: 'system', content: `${BASE} Escreva respostas de WhatsApp curtas (até 6 linhas), educadas e objetivas, sem emojis. Não prometa prazos ou valores que não estejam no contexto.` },
+    { role: 'user', content: `Sugira a resposta para esta mensagem de um cliente.${context ? `\n\nContexto do cliente:\n${context}` : ''}\n\nMensagem do cliente:\n${message.slice(0, 3000)}` },
+  ];
+}
+

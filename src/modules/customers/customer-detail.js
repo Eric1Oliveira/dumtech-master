@@ -4,18 +4,20 @@ import { html, setHtml, $, bindActions } from '../../shared/utils/dom.js';
 import { formatDate, formatMoney, formatMonth, formatInteger, formatRelative } from '../../shared/utils/format.js';
 import { pageIconHtml } from '../workspace/views.js';
 import { getState } from '../../core/state.js';
-import { CUSTOMER_STATUS, CUSTOMER_KINDS, formatDocument, whatsappLink } from '../../core/customers.js';
+import { CUSTOMER_STATUS, CUSTOMER_KINDS, formatDocument, whatsappLink, primaryPhone } from '../../core/customers.js';
 import { billingStatus, monthKey } from '../../core/billing.js';
 import { PROPOSAL_STATUS, proposalNumber } from '../../core/proposals.js';
 import { PRODUCT_STATUS } from '../../core/catalog.js';
-import { today } from '../../core/validate.js';
+import { labelOf, today } from '../../core/validate.js';
 import { data } from '../../services/data.js';
 import { canDo } from '../../services/auth.js';
 import { dataTable } from '../../shared/components/table.js';
-import { confirmDialog } from '../../shared/components/dialog.js';
+import { openDialog, confirmDialog } from '../../shared/components/dialog.js';
 import { statusPill } from '../../shared/components/list-page.js';
 import { emptyState, loadError, toast, toastError } from '../../shared/components/feedback.js';
 import { icon } from '../../shared/components/icons.js';
+import { aiWrite, sendText } from '../../shared/components/ai-write.js';
+import { customerBriefMessages, replyMessages } from '../../core/ai-prompts.js';
 import { editCustomer, editContact, docLabel } from './customer-form.js';
 import { billingPill, linkSubscription, editSubscription, markPaid, undoPayment, monthCell } from './billing-ui.js';
 
@@ -74,6 +76,27 @@ export async function renderCustomerDetail({ root, module, signal }, id) {
   const month = monthKey(todayKey);
   const stateOf = (/** @type {Subscription} */ s) => billingStatus(s, payments, month, todayKey);
   const paymentOf = (/** @type {string} */ subId) => payments.find((p) => p.subscriptionId === subId && p.month === month) ?? null;
+  const BILLING_TEXT = { paid: 'paga', open: 'em aberto', late: 'atrasada', none: 'sem cobrança' };
+  /** O que a IA sabe do cliente: só o que esta ficha já mostra. */
+  const briefFacts = () => {
+    const c = /** @type {Customer} */ (customer);
+    const live = subs.filter((s) => s.status !== 'cancelled');
+    const year = todayKey.slice(0, 4);
+    const main = contacts.find((x) => x.isPrimary) ?? contacts[0];
+    const recent = [...pages].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 4);
+    return [
+      `${kindLabel(c.kind)}, situação: ${labelOf(CUSTOMER_STATUS, c.status)}`,
+      main ? `Contato principal: ${main.name}` : '',
+      ...(seeProducts
+        ? live.map((s) => `Projeto ${s.productName} (${labelOf(PRODUCT_STATUS, stages.get(s.productId) ?? '')}): ${formatMoney(s.monthlyAmount ?? 0)} por mês; mensalidade de ${formatMonth(month)} ${BILLING_TEXT[stateOf(s)]}`)
+        : []),
+      seeProducts ? `Mensalidades atrasadas: ${live.filter((s) => s.status === 'active' && stateOf(s) === 'late').length}` : '',
+      seeProducts ? `Recebido em ${year}: ${formatMoney(payments.filter((x) => x.month.startsWith(year)).reduce((t, x) => t + x.amount, 0))}` : '',
+      ...(proposals ?? []).filter((x) => x.status === 'draft' || x.status === 'sent').map((x) => `Proposta ${proposalNumber(x.number)} "${x.title}": ${labelOf(PROPOSAL_STATUS, x.status)}`),
+      ...recent.map((x) => `${x.kind === 'meeting' ? 'Reunião' : 'Página'} no Caderno: "${x.title.trim() || 'Sem título'}" (${formatDate((x.meetingDate || x.updatedAt).slice(0, 10))})`),
+      c.notes ? `Observações da ficha: ${c.notes.slice(0, 400)}` : '',
+    ].filter(Boolean);
+  };
 
   const draw = () => {
     if (!customer) {
@@ -98,12 +121,12 @@ export async function renderCustomerDetail({ root, module, signal }, id) {
             <p class="page-sub page-sub--row">${kindLabel(c.kind)}${c.document ? html` · <span class="mono">${formatDocument(c.document)}</span>` : ''} ${statusPill(CUSTOMER_STATUS, c.status)}
               ${c.tags.length ? html`<span class="tags">${c.tags.map((t) => html`<span class="tag">${t}</span>`)}</span>` : ''}</p>
           </div>
-          ${manage
-            ? html`<div class="page-actions">
-                <button type="button" class="btn btn--ghost" data-action="remove">${icon('trash')}<span>Excluir</span></button>
-                <button type="button" class="btn btn--secondary" data-action="edit">${icon('edit')}<span>Editar</span></button>
-              </div>`
-            : ''}
+          <div class="page-actions">
+            ${manage ? html`<button type="button" class="btn btn--ghost" data-action="remove">${icon('trash')}<span>Excluir</span></button>` : ''}
+            <button type="button" class="btn btn--secondary" data-action="ai-reply" title="Cole a mensagem do cliente e a IA sugere a resposta">${icon('message')}<span>Responder com IA</span></button>
+            <button type="button" class="btn btn--secondary" data-action="ai-brief" title="Resumo para se preparar antes de falar com o cliente">${icon('sparkles')}<span>Resumo</span></button>
+            ${manage ? html`<button type="button" class="btn btn--secondary" data-action="edit">${icon('edit')}<span>Editar</span></button>` : ''}
+          </div>
         </header>
         ${seeProducts
           ? html`<dl class="stat-strip stat-strip--spaced">
@@ -267,6 +290,29 @@ export async function renderCustomerDetail({ root, module, signal }, id) {
   draw();
 
   bindActions(root, {
+    'ai-brief': async () => {
+      const c = /** @type {Customer} */ (customer);
+      await aiWrite(customerBriefMessages(c.name, briefFacts()), { title: `Antes de falar com ${c.name}`, useLabel: 'Fechar', readOnly: true, maxTokens: 450 });
+    },
+    'ai-reply': async () => {
+      const c = /** @type {Customer} */ (customer);
+      let message = '';
+      const ok = await openDialog({
+        title: `Responder ${c.name}`,
+        description: 'Cole a mensagem que o cliente mandou. A IA local sugere a resposta usando a ficha dele.',
+        body: html`<label class="field"><span class="field__label">Mensagem do cliente</span>
+          <textarea class="input" name="msg" rows="6" maxlength="3000" required placeholder="Ex.: Oi, o site está fora do ar?"></textarea></label>`,
+        submitLabel: 'Sugerir resposta',
+        onSubmit: (form) => {
+          message = String(form.get('msg') ?? '').trim();
+          if (message.length < 3) throw new Error('Cole a mensagem do cliente.');
+        },
+      });
+      if (!ok) return;
+      const phone = primaryPhone(c, contacts);
+      const text = await aiWrite(replyMessages(message, briefFacts().join('\n')), { title: `Resposta para ${c.name}`, useLabel: phone ? 'Abrir no WhatsApp' : 'Copiar texto', maxTokens: 350 });
+      if (text) sendText(text, phone);
+    },
     edit: () => run(() => editCustomer(/** @type {Customer} */ (customer)), 'Cliente atualizado.'),
     remove: async () => {
       const c = /** @type {Customer} */ (customer);

@@ -88,7 +88,7 @@ export async function openAssistant(question) {
         <header class="assistant__head">
           <div>
             <p class="assistant__title">${icon('message')} DUM AI</p>
-            <p class="assistant__sub">Assistente por regras · responde com o que o seu papel em ${getState().org?.name ?? ''} pode ver</p>
+            <p class="assistant__sub">Responde com o que o seu papel em ${getState().org?.name ?? ''} pode ver · “Explicar com IA” roda neste computador</p>
           </div>
           <button type="button" class="icon-btn" data-close aria-label="Fechar o DUM AI">${icon('x')}</button>
         </header>

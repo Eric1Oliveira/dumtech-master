@@ -21,7 +21,7 @@ import { dataTable } from '../../shared/components/table.js';
 import { emptyState, loadError, toast, toastError } from '../../shared/components/feedback.js';
 import { icon } from '../../shared/components/icons.js';
 import { FILE_MAX_BYTES, formatBytes } from '../../core/workspace.js';
-import { causeText, durationText, uptime, pctText, blocks, msStats, responseSeries } from '../../core/monitor.js';
+import { causeText, durationText, uptime, pctText, blocks, msStats, responseSeries, STATE } from '../../core/monitor.js';
 import { uptimeStrip, drawLineChart } from '../../shared/components/charts.js';
 import { renewalBadge, editAsset, monitorBadge, editSchedule } from '../infrastructure/index.js';
 import { scheduleText, everyText } from '../../core/monitor.js';
@@ -30,6 +30,9 @@ import { loadProjects, summarizeProject } from './project-data.js';
 import { editProject } from './project-form.js';
 import { newPage } from '../workspace/new-page.js';
 import { pageIconHtml } from '../workspace/views.js';
+import { aiWrite, sendText } from '../../shared/components/ai-write.js';
+import { clientReportMessages } from '../../core/ai-prompts.js';
+import { primaryPhone } from '../../core/customers.js';
 
 /** @typedef {ReturnType<typeof summarizeProject>} Project */
 /** @typedef {import('../../services/data.js').Asset} Asset */
@@ -89,10 +92,11 @@ export async function renderProjectPage({ root, module, signal }, id) {
               ${statusPill(PRODUCT_STATUS, stage)}
               ${pr.url ? html`<a class="ext-link" href="${pr.url}" target="_blank" rel="noopener noreferrer">${host(pr.url)}${icon('external')}</a>` : ''}</p>
           </div>
-          ${manage
+          ${manage || s.customers.length
             ? html`<div class="page-actions">
-                <button type="button" class="btn btn--ghost" data-action="remove">${icon('trash')}<span>Excluir</span></button>
-                <button type="button" class="btn btn--secondary" data-action="edit">${icon('edit')}<span>Editar</span></button>
+                ${manage ? html`<button type="button" class="btn btn--ghost" data-action="remove">${icon('trash')}<span>Excluir</span></button>` : ''}
+                ${s.customers.length ? html`<button type="button" class="btn btn--secondary" data-action="ai-report" title="A IA escreve o resumo da semana para mandar ao cliente">${icon('sparkles')}<span>Relatório para o cliente</span></button>` : ''}
+                ${manage ? html`<button type="button" class="btn btn--secondary" data-action="edit">${icon('edit')}<span>Editar</span></button>` : ''}
               </div>`
             : ''}
         </header>
@@ -515,6 +519,28 @@ export async function renderProjectPage({ root, module, signal }, id) {
   };
 
   bindActions(root, {
+    'ai-report': async () => {
+      const s = /** @type {Project} */ (p);
+      const customer = s.customers[0];
+      if (!customer) return;
+      const weekAgo = new Date(Date.now() - 7 * 864e5).toISOString();
+      const done = s.tasks.filter((t) => t.status === 'done' && t.doneAt && t.doneAt >= weekAgo);
+      const open = s.tasks.filter((t) => t.status !== 'done');
+      const site = s.monitors.find((m) => m.kind === 'site' && m.enabled);
+      const facts = [
+        `Etapa: ${labelOf(PRODUCT_STATUS, s.product.status)}`,
+        done.length ? `Feito nos últimos 7 dias: ${done.slice(0, 10).map((t) => t.title).join('; ')}` : 'Nenhuma tarefa concluída nos últimos 7 dias',
+        s.progress.total ? `Checklist: ${s.progress.done} de ${s.progress.total} itens prontos` : '',
+        open.length ? `Próximos passos: ${open.slice(0, 5).map((t) => t.title).join('; ')}` : '',
+        site ? `Situação do site agora: ${STATE[site.state]?.label ?? 'sem verificação'}` : '',
+      ].filter(Boolean);
+      /** @type {[any[], any[]]} */
+      const [customers, contacts] = await Promise.all([data.customers.list(org.id), data.customerContacts.list(org.id, { customerId: customer.id })]).catch(() => [[], []]);
+      const c = customers.find((x) => x.id === customer.id);
+      const phone = c ? primaryPhone(c, contacts) : null;
+      const text = await aiWrite(clientReportMessages({ project: s.product.name, customer: customer.name, facts }), { title: `Relatório para ${customer.name}`, useLabel: phone ? 'Abrir no WhatsApp' : 'Copiar texto', maxTokens: 600 });
+      if (text) sendText(text, phone);
+    },
     edit: async () => {
       if (await editProject(/** @type {Project} */ (p).product).catch((e) => (toastError(e), false))) done('Projeto atualizado.');
     },

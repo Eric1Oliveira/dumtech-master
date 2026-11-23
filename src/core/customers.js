@@ -144,3 +144,13 @@ export function whatsappLink(/** @type {string | null} */ phone) {
   if (digits.length < 10) return null;
   return `https://wa.me/${digits.length <= 11 ? `55${digits}` : digits}`;
 }
+
+/**
+ * Telefone para falar com o cliente: o do contato principal, senão o de outro contato, senão o da ficha.
+ * @param {{ id: string, phone: string | null }} customer
+ * @param {{ customerId: string, isPrimary: boolean, phone: string | null }[]} contacts
+ */
+export function primaryPhone(customer, contacts) {
+  const mine = contacts.filter((c) => c.customerId === customer.id && c.phone);
+  return mine.find((c) => c.isPrimary)?.phone ?? mine[0]?.phone ?? customer.phone ?? null;
+}

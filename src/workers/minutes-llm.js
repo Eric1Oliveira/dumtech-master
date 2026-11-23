@@ -36,14 +36,33 @@ self.onmessage = async ({ data }) => {
         max_tokens: data.maxTokens ?? 900,
         ...(data.schema ? { response_format: { type: 'json_object', schema: JSON.stringify(data.schema) } } : {}),
       };
-      let res;
+      // stream = o texto aparece na tela enquanto é escrito (mensagens "token" com o texto até ali)
+      const run = async (/** @type {Record<string, any>} */ extra) => {
+        if (!data.stream) {
+          const res = await engine.chat.completions.create({ ...request, ...extra });
+          return res?.choices?.[0]?.message?.content ?? '';
+        }
+        const chunks = await engine.chat.completions.create({ ...request, ...extra, stream: true });
+        let text = '';
+        let last = 0;
+        for await (const c of chunks) {
+          text += c?.choices?.[0]?.delta?.content ?? '';
+          if (Date.now() - last > 70) {
+            last = Date.now();
+            self.postMessage({ type: 'token', id, text });
+          }
+        }
+        self.postMessage({ type: 'token', id, text });
+        return text;
+      };
+      let out;
       try {
-        // Qwen 3: sem "pensar em voz alta" (mais rápido e só o JSON).
-        res = await engine.chat.completions.create({ ...request, extra_body: { enable_thinking: false } });
+        // Qwen 3: sem "pensar em voz alta" (mais rápido e só o texto pedido).
+        out = await run({ extra_body: { enable_thinking: false } });
       } catch {
-        res = await engine.chat.completions.create(request);
+        out = await run({});
       }
-      return reply(id, res?.choices?.[0]?.message?.content ?? '');
+      return reply(id, out);
     }
     throw new Error(`Pedido desconhecido: ${type}`);
   } catch (error) {

@@ -20,7 +20,7 @@ import { togglePopover } from '../../shared/components/popover.js';
 import { createEditor } from './editor.js';
 import { mountMeeting } from './meeting.js';
 import { newPage } from './new-page.js';
-import { AI_LEVELS, aiLevel, setAiLevel, gpu, clearModels, storageUsed } from './ai.js';
+import { AI_LEVELS, aiLevel, setAiLevel, gpu, clearModels, storageUsed, downloadAll } from './ai.js';
 import { renderProjects, renderTasks, renderMeetings, renderDocs, pageIconHtml } from './views.js';
 import { aiWrite, aiRun } from '../../shared/components/ai-write.js';
 import { REWRITE, rewriteMessages, draftMessages, pageMessages, scorePages, askMessages } from '../../core/ai-prompts.js';
@@ -490,7 +490,11 @@ export async function render(ctx) {
           <div><dt>Placa de vídeo (WebGPU)</dt><dd>${g.webgpu ? `disponível${g.f16 ? ' (meia precisão)' : ''}` : 'não disponível: transcrição mais lenta e ata por regras'}</dd></div>
           <div><dt>Espaço usado pelo site</dt><dd>${used ? formatBytes(used) : '—'}</dd></div>
         </dl>
-        <button type="button" class="btn btn--ghost btn--sm" data-ai-clear>${icon('trash')}<span>Apagar modelos baixados</span></button>`,
+        <div class="ai-dl-row">
+          <button type="button" class="btn btn--ghost btn--sm" data-ai-download>${icon('download')}<span>Baixar tudo agora</span></button>
+          <button type="button" class="btn btn--ghost btn--sm" data-ai-clear>${icon('trash')}<span>Apagar modelos</span></button>
+        </div>
+        <p class="ai-dl-status" data-ai-dl-status hidden></p>`,
       submitLabel: 'Salvar',
       onSubmit: (form) => {
         setAiLevel(/** @type {any} */ (String(form.get('level') ?? 'full')));
@@ -505,6 +509,31 @@ export async function render(ctx) {
       toast('Modelos apagados. Na próxima vez eles são baixados de novo.', 'success');
     } catch (error) {
       toastError(error);
+    }
+  }, { signal });
+
+  document.addEventListener('click', async (e) => {
+    const btn = /** @type {HTMLElement} */ (e.target).closest?.('[data-ai-download]');
+    if (!btn) return;
+    /** @type {HTMLElement | null} */
+    const status = document.querySelector('[data-ai-dl-status]');
+    /** @type {HTMLButtonElement | null} */
+    const btnEl = /** @type {HTMLButtonElement} */ (btn);
+    btnEl.disabled = true;
+    const report = (/** @type {string} */ text) => {
+      if (!status) return;
+      status.hidden = false;
+      status.textContent = text;
+    };
+    try {
+      await downloadAll(report);
+      toast('Modelos prontos. A IA já está disponível.', 'success');
+      if (status) { status.hidden = true; status.textContent = ''; }
+    } catch (error) {
+      toastError(error);
+      if (status) { status.hidden = true; }
+    } finally {
+      btnEl.disabled = false;
     }
   }, { signal });
 

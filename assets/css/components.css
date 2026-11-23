@@ -962,6 +962,8 @@ body:has(.assistant) .toasts { right: calc(min(420px, 100vw - 32px) + 32px); }
 .choice:hover { border-color: var(--line-strong); }
 .choice:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .choice.is-disabled { opacity: 0.5; cursor: not-allowed; }
+.ai-dl-row { display: flex; gap: var(--s-2); flex-wrap: wrap; margin-top: var(--s-4); }
+.ai-dl-status { font-size: var(--fs-sm); color: var(--text-2); margin: var(--s-2) 0 0; min-height: 1.4em; }
 .checkbox { display: flex; align-items: center; gap: var(--s-2); font-size: var(--fs-sm); color: var(--text-2); cursor: pointer; }
 .checkbox input { width: 16px; height: 16px; flex: none; accent-color: var(--accent); }
 .more { margin-top: var(--s-2); }

@@ -55,6 +55,29 @@ export async function clearModels() {
   embedder.reset();
 }
 
+/**
+ * Baixa todos os modelos de uma vez (embed + Whisper + LLM se WebGPU).
+ * @param {(text: string, pct: number | null) => void} report
+ */
+export async function downloadAll(report) {
+  const level = aiLevel();
+  if (level === 'off') throw new Error('A IA local está desligada. Ligue em Caderno › IA local.');
+  accept('embed');
+  accept('whisper');
+  accept('llm');
+  report('Baixando modelo de busca…', null);
+  await embedder.load(report);
+  report('Baixando modelo de transcrição (Whisper)…', null);
+  navigator.storage?.persist?.().catch(() => {});
+  await transcriber.load(report);
+  const g = await gpu();
+  if (g.webgpu) {
+    report('Baixando modelo de escrita (LLM)…', null);
+    await minutesModel.load(report);
+  }
+  report('Todos os modelos prontos.', 1);
+}
+
 /** Pergunta (uma vez) antes de baixar o Whisper (reuniões e ditado). */
 export async function okToDownloadWhisper() {
   if (aiLevel() === 'off') {

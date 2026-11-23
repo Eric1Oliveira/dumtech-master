@@ -30,6 +30,7 @@ import { formatDate } from '../../shared/utils/format.js';
  * @property {(current: string | null) => Promise<string | null | undefined>} askLink   undefined = cancelou
  * @property {boolean} canTasks
  * @property {() => void} onSave   Ctrl+S
+ * @property {((text: string) => Promise<string | null>) | null} [aiRewrite]   IA local: devolve o texto novo (ou null)
  */
 
 const esc = escapeHtml;
@@ -601,14 +602,43 @@ export function createEditor(host, { blocks: initial, readOnly = false, ctx, onC
       toolbar.addEventListener('mousedown', (e) => e.preventDefault());
       toolbar.addEventListener('click', (e) => {
         const btn = /** @type {HTMLElement} */ (e.target).closest('button');
-        if (btn) format(/** @type {any} */ (btn.dataset.mark));
+        if (btn?.dataset.mark === 'ai') aiSelection();
+        else if (btn) format(/** @type {any} */ (btn.dataset.mark));
       });
     }
     const btn = (/** @type {string} */ mark, /** @type {string} */ label, /** @type {string} */ title) => `<button type="button" data-mark="${mark}" class="${on[mark] ? 'is-on' : ''}" title="${title}" aria-pressed="${Boolean(on[mark])}">${label}</button>`;
-    toolbar.innerHTML = btn('b', '<strong>N</strong>', 'Negrito (Ctrl+B)') + btn('i', '<em>I</em>', 'Itálico (Ctrl+I)') + btn('u', '<u>S</u>', 'Sublinhado (Ctrl+U)') + btn('s', '<s>R</s>', 'Riscado (Ctrl+Shift+X)') + btn('c', '&lt;/&gt;', 'Código (Ctrl+E)') + btn('a', 'Link', 'Link (Ctrl+K)');
+    toolbar.innerHTML = btn('b', '<strong>N</strong>', 'Negrito (Ctrl+B)') + btn('i', '<em>I</em>', 'Itálico (Ctrl+I)') + btn('u', '<u>S</u>', 'Sublinhado (Ctrl+U)') + btn('s', '<s>R</s>', 'Riscado (Ctrl+Shift+X)') + btn('c', '&lt;/&gt;', 'Código (Ctrl+E)') + btn('a', 'Link', 'Link (Ctrl+K)') + (ctx.aiRewrite ? btn('ai', 'IA', 'Escrever com IA') : '');
     const rect = /** @type {Range} */ (sel.getRangeAt(0)).getBoundingClientRect();
     toolbar.style.left = `${Math.max(8, Math.min(rect.left + rect.width / 2 - toolbar.offsetWidth / 2, innerWidth - toolbar.offsetWidth - 8))}px`;
     toolbar.style.top = `${Math.max(8, rect.top - toolbar.offsetHeight - 8)}px`;
+  }
+
+  /** IA local reescreve o trecho selecionado (pode virar vários blocos, ex.: lista de tarefas). */
+  async function aiSelection() {
+    const anchor = getSelection()?.anchorNode ?? null;
+    const el = /** @type {HTMLElement | null} */ ((anchor?.nodeType === Node.ELEMENT_NODE ? /** @type {Element} */ (anchor) : anchor?.parentElement)?.closest('.ed-text') ?? null);
+    if (!el || !host.contains(el) || !ctx.aiRewrite) return;
+    const id = /** @type {HTMLElement} */ (el.closest('.ed-b')).dataset.id ?? '';
+    const b = blocks[indexOf(id)];
+    const range = selectionIn(el);
+    if (!b || !range || range.collapsed) return;
+    const chosen = runsText(b.text).slice(range.start, range.end);
+    hideToolbar();
+    const out = await ctx.aiRewrite(chosen);
+    if (!out) return;
+    const idx = indexOf(id);
+    if (idx < 0) return;
+    structural(() => {
+      const lines = textToBlocks(out);
+      if (lines.length <= 1) {
+        b.text = replaceRange(b.text ?? [], range.start, range.end, plainRuns(out.replace(/\s*\n\s*/g, ' ')));
+        return { id, at: range.start + out.length };
+      }
+      b.text = replaceRange(b.text ?? [], range.start, range.end, []);
+      const empty = !runsText(b.text).trim();
+      blocks.splice(idx + (empty ? 0 : 1), empty ? 1 : 0, ...lines);
+      return { id: lines[lines.length - 1].id, at: 'end' };
+    });
   }
 
   /** @param {'b' | 'i' | 'u' | 's' | 'c' | 'a'} mark */

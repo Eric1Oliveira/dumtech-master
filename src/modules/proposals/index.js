@@ -12,6 +12,8 @@ import { listPage, statusPill } from '../../shared/components/list-page.js';
 import { confirmDialog } from '../../shared/components/dialog.js';
 import { emptyState, loadError, toast, toastError, errorMessage } from '../../shared/components/feedback.js';
 import { icon } from '../../shared/components/icons.js';
+import { aiWrite, aiRun } from '../../shared/components/ai-write.js';
+import { proposalMessages, proposalItemsMessages, pickCatalog, PROPOSAL_ITEMS_SCHEMA } from '../../core/ai-prompts.js';
 
 /** @typedef {import('../../services/data.js').Proposal} Proposal */
 /** @typedef {import('../../core/proposals.js').ProposalItem} ProposalItem */
@@ -179,6 +181,8 @@ async function renderEditor({ root, module, signal }, proposal, initialItems, pa
           </div>
         </section>
         <section class="panel">
+          <div class="ai-row"><button type="button" class="btn btn--ghost btn--sm" data-action="ai-notes">${icon('sparkles')}<span>Escrever com IA</span></button>
+            <button type="button" class="btn btn--ghost btn--sm" data-action="ai-items">${icon('sparkles')}<span>Sugerir itens com IA</span></button></div>
           <label class="field"><span class="field__label">Observações e condições</span>
             <textarea class="input" name="notes" rows="4" maxlength="4000" placeholder="Prazos, forma de pagamento, o que não está incluso…">${proposal?.notes ?? ''}</textarea></label>
         </section>
@@ -287,7 +291,30 @@ async function renderEditor({ root, module, signal }, proposal, initialItems, pa
 
   const busy = (/** @type {boolean} */ on) => $$('.page-actions .btn', root).forEach((b) => (/** @type {HTMLButtonElement} */ (b).disabled = on));
 
+  const notesEl = () => /** @type {HTMLTextAreaElement} */ (form.querySelector('[name="notes"]'));
   bindActions(root, {
+    'ai-notes': async () => {
+      const v = collect();
+      const out = await aiWrite(proposalMessages({ customer: customers.find((c) => c.id === v.customerId)?.name ?? '', title: v.title, notes: v.notes, items: items.map((i) => i.description).filter(Boolean) }), { title: 'Observações da proposta', maxTokens: 700 });
+      if (out) notesEl().value = out;
+    },
+    'ai-items': async () => {
+      const notes = notesEl().value.trim();
+      if (notes.length < 10) return toast('Escreva nas observações o que o cliente pediu.', 'info');
+      try {
+        const text = await aiRun(proposalItemsMessages(notes, sellable.map((s) => s.name)), { schema: PROPOSAL_ITEMS_SCHEMA, maxTokens: 300 });
+        if (text === null) return;
+        const picked = pickCatalog(text, sellable).filter((p) => !items.some((i) => i.productId === p.id));
+        if (!picked.length) return toast('A IA não achou itens novos na tabela de preços.', 'info');
+        const blank = items.length === 1 && !items[0].description;
+        if (blank) items.length = 0;
+        for (const p of picked) items.push({ productId: p.id, description: p.name, quantity: 1, unitPrice: p.price, recurring: p.recurring });
+        drawItems();
+        toast(`${picked.length} item(ns) sugerido(s). Confira os valores.`, 'success');
+      } catch (error) {
+        toastError(error);
+      }
+    },
     'add-item': () => {
       items.push({ productId: null, description: '', quantity: 1, unitPrice: 0, recurring: false });
       drawItems();

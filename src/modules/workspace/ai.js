@@ -193,11 +193,12 @@ export const minutesModel = {
   },
   /**
    * @param {{ role: 'system' | 'user', content: string }[]} messages
-   * @param {object} schema
+   * @param {object | null} schema   null = texto livre
+   * @param {number} [maxTokens]
    * @returns {Promise<string>}
    */
-  chat(messages, schema) {
-    return minutesWorker.call('chat', { messages, schema, maxTokens: 900 });
+  chat(messages, schema, maxTokens = 900) {
+    return minutesWorker.call('chat', { messages, schema, maxTokens });
   },
   reset() {
     llmModel = '';

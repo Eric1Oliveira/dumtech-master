@@ -34,6 +34,7 @@ const replyHtml = (reply) => html`
         </li>`,
       )}</ul>`
     : ''}
+  ${reply.items?.length || reply.text ? html`<button type="button" class="chip-btn bot__ai" data-explain>Explicar com IA</button>` : ''}
   ${reply.suggestions?.length
     ? html`<div class="bot__chips">${reply.suggestions.map((s) => html`<button type="button" class="chip-btn" data-ask="${s}">${s}</button>`)}</div>`
     : ''}`;
@@ -67,6 +68,18 @@ async function ask(question) {
   drawMessages();
 }
 
+/** IA local explica a resposta (só com os dados já mostrados). @param {Element | null} msg */
+async function explain(msg) {
+  const i = [...(panel?.querySelectorAll('.msg') ?? [])].indexOf(/** @type {Element} */ (msg));
+  const reply = /** @type {any} */ (messages[i])?.reply;
+  const question = [...messages.slice(0, i)].reverse().find((m) => m.from === 'me')?.text ?? '';
+  if (!reply) return;
+  const facts = [reply.text, ...(reply.items ?? []).map((/** @type {any} */ x) => [x.label, x.sub].filter(Boolean).join(' — '))].filter(Boolean).slice(0, 25);
+  const { aiWrite } = await import('./ai-write.js');
+  const { explainMessages } = await import('../../core/ai-prompts.js');
+  await aiWrite(explainMessages(question, facts), { title: 'Explicação da IA', useLabel: 'Fechar', readOnly: true, maxTokens: 450 });
+}
+
 /** Abre o painel (opcionalmente já perguntando algo). @param {string} [question] */
 export async function openAssistant(question) {
   if (!panel) {
@@ -91,6 +104,7 @@ export async function openAssistant(question) {
       const target = /** @type {HTMLElement} */ (event.target);
       const chip = /** @type {HTMLElement | null} */ (target.closest('[data-ask]'));
       if (chip) ask(chip.dataset.ask);
+      else if (target.closest('[data-explain]')) explain(target.closest('.msg'));
       else if (target.closest('[data-close]')) closeAssistant();
       else if (target.closest('a[href^="#/"]') && MOBILE.matches) closeAssistant();
     });

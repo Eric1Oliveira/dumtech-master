@@ -17,6 +17,9 @@ import { canDo } from '../../services/auth.js';
 import { emptyState, loadError, toast, toastError } from '../../shared/components/feedback.js';
 import { openRecordDialog } from '../../shared/components/record-form.js';
 import { icon } from '../../shared/components/icons.js';
+import { aiWrite } from '../../shared/components/ai-write.js';
+import { billingMessages, weekMessages, BILLING_TONES } from '../../core/ai-prompts.js';
+import { openDialog } from '../../shared/components/dialog.js';
 import { markPaid } from '../customers/billing-ui.js';
 import { editAsset, monitorBadge } from '../infrastructure/index.js';
 
@@ -33,6 +36,7 @@ export async function render({ root, signal }) {
           <h1 class="page-title">${greeting()}${firstName ? `, ${firstName}` : ''}</h1>
           <p class="page-sub">${formatDateLong(new Date())} · ${org.name} · você é ${roleName(org.role)}</p>
         </div>
+        ${html`<div class="page-actions"><button type="button" class="btn btn--secondary" data-action="ai-week">${icon('sparkles')}<span>Resumo da semana</span></button></div>`}
         ${canDo('products.manage') ? html`<div class="page-actions"><a class="btn btn--primary" href="#/projects/novo">${icon('plus')}<span>Novo projeto</span></a></div>` : ''}
       </header>
       <div data-numbers><div class="skeleton"></div></div>
@@ -172,6 +176,7 @@ export async function render({ root, signal }) {
         pix: state.billing?.pixKey,
       });
       return html`${base ? html`<a class="btn btn--secondary btn--sm" href="${base}?text=${encodeURIComponent(text)}" target="_blank" rel="noopener noreferrer">${icon('message')}<span>WhatsApp</span></a>` : ''}
+        ${base ? html`<button type="button" class="btn btn--ghost btn--sm" data-action="ai-billing" data-id="${i.id}" title="Mensagem com IA">${icon('sparkles')}</button>` : ''}
         ${canDo('customers.manage') ? html`<button type="button" class="btn btn--quiet btn--sm" data-action="paid" data-id="${i.id}">${icon('check')}<span>Pago</span></button>` : ''}`;
     }
     if (i.kind === 'adjust') {
@@ -203,6 +208,30 @@ export async function render({ root, signal }) {
   }
 
   bindActions(root, {
+    'ai-billing': async (el) => {
+      const b = state.billings.find((/** @type {any} */ x) => x.subId === el.dataset.id);
+      const item = state.items.find((/** @type {any} */ x) => x.kind === 'billing' && x.id === el.dataset.id);
+      if (!b) return;
+      const late = Math.max(0, Math.round((Date.parse(today()) - Date.parse(b.due)) / 864e5));
+      let tom = late > 30 ? 'last' : late > 0 ? 'late' : b.due === today() ? 'due' : 'gentle';
+      const ok = await openDialog({ title: 'Mensagem com IA', body: html`<label class="field"><span class="field__label">Tom</span><select class="input" name="tom">${BILLING_TONES.map((t) => html`<option value="${t.value}" ${t.value === tom ? html`selected` : ''}>${t.label}</option>`)}</select></label>`, submitLabel: 'Gerar', onSubmit: (f) => { tom = String(f.get('tom')); } });
+      if (!ok) return;
+      const text = await aiWrite(billingMessages({ cliente: b.customerName, projeto: b.productName, valor: b.amountLabel, vencimento: formatDate(b.due), diasAtraso: late, pix: state.billing?.pixKey, tom }), { title: `Cobrança de ${b.customerName}`, useLabel: 'Abrir no WhatsApp', maxTokens: 400 });
+      const link = whatsappLink(item?.phone);
+      if (text && link) window.open(`${link}?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+    },
+    'ai-week': async () => {
+      const s = state;
+      const late = s.items.filter((/** @type {any} */ i) => i.tone === 'error');
+      const facts = [
+        `Mensalidades por mês: ${formatMoney(s.monthly)}`,
+        s.seesBilling ? `Recebido no mês: ${formatMoney(s.received)} de ${formatMoney(s.expected)} previstos` : '',
+        `${late.length} item(ns) urgente(s): ${late.slice(0, 6).map((/** @type {any} */ i) => i.title).join('; ') || 'nenhum'}`,
+        `${s.items.length} pendência(s) no Hoje: ${s.items.slice(0, 8).map((/** @type {any} */ i) => i.title).join('; ') || 'nenhuma'}`,
+        `Sites fora do ar: ${s.monitors.filter((/** @type {any} */ m) => m.enabled && m.state === 'down').length}`,
+      ].filter(Boolean);
+      await aiWrite(weekMessages(facts), { title: 'Resumo da semana', useLabel: 'Fechar', readOnly: true, maxTokens: 500 });
+    },
     paid: async (el) => {
       const b = state.billings.find((/** @type {any} */ x) => x.subId === el.dataset.id);
       if (b && (await markPaid(org.id, b.sub).catch((e) => (toastError(e), false)))) refresh('Pagamento registrado.');

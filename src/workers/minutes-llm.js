@@ -34,7 +34,7 @@ self.onmessage = async ({ data }) => {
         messages: data.messages,
         temperature: 0.2,
         max_tokens: data.maxTokens ?? 900,
-        response_format: { type: 'json_object', schema: JSON.stringify(data.schema) },
+        ...(data.schema ? { response_format: { type: 'json_object', schema: JSON.stringify(data.schema) } } : {}),
       };
       let res;
       try {

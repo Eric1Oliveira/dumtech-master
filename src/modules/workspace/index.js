@@ -22,6 +22,9 @@ import { mountMeeting } from './meeting.js';
 import { newPage } from './new-page.js';
 import { AI_LEVELS, aiLevel, setAiLevel, gpu, clearModels, storageUsed } from './ai.js';
 import { renderProjects, renderTasks, renderMeetings, renderDocs, pageIconHtml } from './views.js';
+import { aiWrite, aiRun } from '../../shared/components/ai-write.js';
+import { REWRITE, rewriteMessages, draftMessages, pageMessages, scorePages, askMessages } from '../../core/ai-prompts.js';
+import { textToBlocks } from '../../core/blocks.js';
 import { PAGE_ICONS, ICON_COLORS, COLOR_LABEL, PROJECT_STATUS, DOC_TYPES, normalizeProps, pageIconName, progressOf } from '../../core/notebook.js';
 
 /** @typedef {import('../../modules/index.js').ModuleContext} Ctx */
@@ -224,6 +227,7 @@ export async function render(ctx) {
       drawTree();
     },
     'ai-settings': () => aiSettings(),
+    'ask-notebook': () => askNotebook(),
     'task-done': async (el) => {
       const t = tasks.find((x) => x.id === el.dataset.id);
       if (!t) return;
@@ -238,6 +242,37 @@ export async function render(ctx) {
     },
   }, signal);
 
+  // Perguntar ao Caderno: acha as páginas ligadas, a IA responde citando [1], [2] -----------------------
+  async function askNotebook() {
+    /** @type {{ id: string, title: string, text: string }[]} */
+    let sources = [];
+    let question = '';
+    /** @type {string | null} */
+    let answer = null;
+    await openDialog({
+      title: 'Perguntar ao Caderno',
+      description: 'A IA local lê as páginas e atas mais ligadas à pergunta e responde com as fontes.',
+      body: html`<label class="field"><span class="field__label">Pergunta</span><input class="input" name="q" required maxlength="300" placeholder="Ex.: o que ficou combinado com a Padaria Sol?" autocomplete="off"></label>`,
+      submitLabel: 'Perguntar',
+      onSubmit: async (form) => {
+        question = String(form.get('q') ?? '').trim();
+        if (question.length < 4) throw new Error('Escreva a pergunta.');
+        const found = await data.pages.search(org.id, question.split(/\s+/).sort((a, b) => b.length - a.length)[0]).catch(() => []);
+        const ids = new Set([...found.map((f) => f.id), ...alive().map((p) => p.id)]);
+        const loaded = await Promise.all([...ids].slice(0, 40).map((id) => data.pages.get(org.id, id).catch(() => null)));
+        const all = loaded.filter(Boolean).map((p) => ({ id: /** @type {any} */ (p).id, title: pageTitle(/** @type {any} */ (p)), text: `${blocksToText(/** @type {any} */ (p).content)}${/** @type {any} */ (p).meeting?.transcript?.length ? `\n${transcriptText(/** @type {any} */ (p).meeting.transcript)}` : ''}` }));
+        sources = scorePages(question, all).slice(0, 4);
+        if (!sources.length) throw new Error('Não achei páginas sobre isso no Caderno.');
+      },
+    });
+    if (!sources.length) return;
+    answer = await aiWrite(askMessages(question, sources), {
+      title: question, useLabel: 'Fechar', readOnly: true, maxTokens: 600,
+      extra: () => html`<p class="field__label aiw__src">Fontes</p><ol class="aiw__sources">${sources.map((s) => html`<li><a class="nt-link" href="#/workspace/${s.id}">${s.title}</a></li>`)}</ol>`,
+    });
+    return answer;
+  }
+
   // Início ------------------------------------------------------------------------------------
   function drawHome() {
     const recent = alive().slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 8);
@@ -251,6 +286,7 @@ export async function render(ctx) {
           ${manage
             ? html`<div class="page-actions">
                 <button type="button" class="btn btn--secondary" data-action="new-meeting">${icon('mic')}<span>Nova reunião</span></button>
+                <button type="button" class="btn btn--secondary" data-action="ask-notebook">${icon('sparkles')}<span>Perguntar ao Caderno</span></button>
                 <button type="button" class="btn btn--primary" data-action="new-page">${icon('plus')}<span>Nova página</span></button>
               </div>`
             : ''}
@@ -747,6 +783,18 @@ export async function render(ctx) {
         },
         canTasks: manage && canDo('projects.manage'),
         onSave: () => save(true),
+        aiRewrite: readOnly ? null : async (text) => {
+          let key = '';
+          const ok = await openDialog({
+            title: 'Escrever com IA',
+            description: `“${text.slice(0, 80)}${text.length > 80 ? '…' : ''}”`,
+            body: html`<div class="pick-list">${REWRITE.map((r, i) => html`<label class="pick"><input type="radio" name="op" value="${r.key}" ${i === 0 ? html`checked` : ''}><span class="pick__body"><strong>${r.label}</strong></span></label>`)}</div>`,
+            submitLabel: 'Gerar',
+            onSubmit: (form) => { key = String(form.get('op')); },
+          });
+          if (!ok) return null;
+          return aiWrite(rewriteMessages(key, text), { title: REWRITE.find((r) => r.key === key)?.label ?? 'IA' });
+        },
       },
     });
 
@@ -926,6 +974,9 @@ export async function render(ctx) {
         manage && !readOnly ? ['duplicate', 'Duplicar'] : null,
         manage && !readOnly ? ['move', 'Mover para…'] : null,
         manage && !readOnly ? ['link', 'Ligar a projeto ou cliente'] : null,
+        manage && !readOnly ? ['ai-summary', 'IA: resumir a página'] : null,
+        manage && !readOnly ? ['ai-tasks', 'IA: achar as tarefas'] : null,
+        manage && !readOnly ? ['ai-draft', 'IA: escrever rascunho pelo título'] : null,
         ['markdown', 'Baixar como Markdown'],
         ['copy', 'Copiar link'],
         manage && !p.archivedAt ? ['trash', 'Mover para a lixeira'] : null,
@@ -946,6 +997,18 @@ export async function render(ctx) {
 
     /** @param {string} action */
     async function moreAction(action) {
+      if (action === 'ai-summary' || action === 'ai-tasks' || action === 'ai-draft') {
+        const body = blocksToText(editor.getBlocks());
+        if (action !== 'ai-draft' && body.trim().length < 20) return toast('A página ainda tem pouco texto.', 'info');
+        if (action === 'ai-draft' && pageTitle({ title }) === 'Sem título') return toast('Dê um título à página primeiro.', 'info');
+        const msgs = action === 'ai-draft' ? draftMessages(pageTitle({ title }), body) : pageMessages(action === 'ai-tasks' ? 'tasks' : 'summary', pageTitle({ title }), body);
+        const out = await aiWrite(msgs, { title: action === 'ai-draft' ? 'Rascunho da página' : action === 'ai-tasks' ? 'Tarefas da página' : 'Resumo da página', useLabel: 'Inserir na página', maxTokens: 900 });
+        if (!out) return;
+        const head = action === 'ai-summary' ? [textToBlocks('## Resumo')[0]] : action === 'ai-tasks' ? [textToBlocks('## Tarefas')[0]] : [];
+        editor.append([...head, ...textToBlocks(out)]);
+        save(true);
+        toast('Texto da IA inserido.', 'success');
+      }
       if (action === 'markdown') {
         const blob = new Blob([blocksToMarkdown(editor.getBlocks(), pageTitle({ title }))], { type: 'text/markdown;charset=utf-8' });
         const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `${normalize(pageTitle({ title })).replace(/[^\w]+/g, '-').slice(0, 60) || 'pagina'}.md` });

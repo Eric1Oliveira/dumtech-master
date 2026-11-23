@@ -30,6 +30,7 @@
  * @property {string} name
  * @property {string} group         '' = área principal (sem título no menu)
  * @property {string} summary
+ * @property {string} [keywords]   termos extras para a busca (Ctrl+K)
  * @property {boolean} [hidden]     fora do menu (rota e busca continuam)
  * @property {string} [permission]  necessária para abrir
  * @property {ModuleSection[]} [sections]
@@ -104,11 +105,12 @@ export const MODULES = [
     id: 'workspace',
     code: 'WSP',
     icon: 'book',
-    name: 'Documentos',
+    name: 'Caderno',
     group: 'Ferramentas',
     permission: 'workspace.view',
     load: () => import('./workspace/index.js'),
-    summary: 'Documentos, notas e arquivos da equipe.',
+    summary: 'Páginas, reuniões com ata automática, tarefas de quem faz o quê e arquivos da equipe.',
+    keywords: 'documentos notas wiki notion reunião ata transcrição pauta checklist briefing',
   },
   {
     id: 'settings',

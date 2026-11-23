@@ -18,7 +18,7 @@ import { checklistProgress } from '../../core/projects.js';
  */
 export async function loadProjects(orgId, productId) {
   const filter = productId ? { productId } : {};
-  const [products, subs, assets, links, monitors, entries, payments, keys, daily, tasks, proposals, files] = await Promise.all([
+  const [products, subs, assets, links, monitors, entries, payments, keys, daily, tasks, proposals, files, pages] = await Promise.all([
     data.products.list(orgId),
     data.customerProducts.list(orgId, filter),
     canDo('infra.view') ? data.assets.list(orgId) : null,
@@ -31,9 +31,10 @@ export async function loadProjects(orgId, productId) {
     canDo('projects.view') ? data.tasks.list(orgId, filter).catch(() => []) : [],
     canDo('proposals.view') ? data.proposals.list(orgId).catch(() => []) : [],
     canDo('workspace.view') ? data.files.list(orgId).catch(() => null) : null,
+    canDo('workspace.view') ? data.pages.list(orgId).catch(() => []) : [],
   ]);
   const costs = serviceCosts({ assets: assets ?? [], links, projects: products });
-  return { products, subs, assets, links, monitors, entries, payments, keys, daily, tasks, proposals, files, costs };
+  return { products, subs, assets, links, monitors, entries, payments, keys, daily, tasks, proposals, files, pages, costs };
 }
 
 /** @typedef {Awaited<ReturnType<typeof loadProjects>>} ProjectsBundle */
@@ -50,7 +51,10 @@ export function summarizeProject(product, bundle, todayKey = today()) {
   const shared = bundle.assets ? bundle.assets.filter((a) => a.shared && bundle.links.some((l) => l.assetId === a.id && l.productId === product.id)) : null;
   const monitors = bundle.monitors.filter((m) => m.productId === product.id);
   const entries = bundle.entries.filter((e) => e.productId === product.id);
-  const tasks = bundle.tasks.filter((t) => t.productId === product.id).sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt));
+  // Checklist da construção = tarefas do projeto; as que vieram de uma ata ficam no painel do Caderno.
+  const tasks = bundle.tasks.filter((t) => t.productId === product.id && !t.pageId).sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt));
+  const pageTasks = bundle.tasks.filter((t) => t.productId === product.id && t.pageId);
+  const pages = bundle.pages.filter((p) => p.productId === product.id && !p.archivedAt);
   const proposals = bundle.proposals.filter((p) => p.productId === product.id);
   const payments = bundle.payments ?? [];
   const tracked = bundle.keys ? bundle.keys.some((k) => k.productId === product.id && !k.revokedAt) : null;
@@ -83,6 +87,8 @@ export function summarizeProject(product, bundle, todayKey = today()) {
     monitors,
     entries,
     tasks,
+    pageTasks,
+    pages,
     proposals,
     /** arquivos do projeto (null = sem acesso ou Storage fora) */
     files: bundle.files ? bundle.files.filter((f) => f.productId === product.id) : null,

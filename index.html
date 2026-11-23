@@ -3,8 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <!-- O hash em script-src e o ws:// local liberam só o recarregamento do Live Server (VS Code). -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-vvt4KWwuNr51XfE5m+hzeNEGhiOfZzG97ccfqGsPwvE='; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://rdap.registro.br https://rdap.verisign.com https://api.telegram.org ws://127.0.0.1:* ws://localhost:*; base-uri 'self'; form-action 'self'; object-src 'none'">
+  <!-- O hash em script-src e o ws:// local liberam só o recarregamento do Live Server (VS Code).
+       wasm/worker/huggingface/raw.githubusercontent: IA local do Caderno (modelos baixados uma vez; o áudio não sai daqui). -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-vvt4KWwuNr51XfE5m+hzeNEGhiOfZzG97ccfqGsPwvE='; worker-src 'self' blob:; style-src 'self'; font-src 'self'; img-src 'self' data: blob: https://*.supabase.co; media-src 'self' blob:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://rdap.registro.br https://rdap.verisign.com https://api.telegram.org https://huggingface.co https://*.huggingface.co https://*.hf.co https://raw.githubusercontent.com ws://127.0.0.1:* ws://localhost:*; base-uri 'self'; form-action 'self'; object-src 'none'">
   <meta name="color-scheme" content="light dark">
   <title>DUMTech Master</title>
   <link rel="icon" href="assets/images/favicon.svg" type="image/svg+xml">
@@ -19,6 +20,7 @@
   <link rel="stylesheet" href="assets/css/global.css">
   <link rel="stylesheet" href="assets/css/layout.css">
   <link rel="stylesheet" href="assets/css/components.css">
+  <link rel="stylesheet" href="assets/css/caderno.css">
   <script src="assets/js/file-guard.js"></script>
   <script src="assets/js/theme-boot.js"></script>
   <script src="env.js"></script>

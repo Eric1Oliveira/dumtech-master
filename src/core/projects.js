@@ -49,7 +49,8 @@ export const TASK_STATUS = /** @type {const} */ ([
 
 /**
  * @typedef {Object} TaskInput
- * @property {string} productId   o projeto
+ * @property {string | null} productId   o projeto (opcional quando a tarefa vem de uma página)
+ * @property {string | null} pageId      página do Caderno (ata de reunião)
  * @property {string} title
  * @property {'todo' | 'doing' | 'done'} status
  * @property {string | null} assigneeId
@@ -59,9 +60,10 @@ export const TASK_STATUS = /** @type {const} */ ([
 
 /** @param {Record<string, any>} input @returns {TaskInput} */
 export function normalizeTask(input) {
-  if (!input.productId) throw new Error('A tarefa precisa de um projeto.');
+  if (!input.productId && !input.pageId) throw new Error('A tarefa precisa de um projeto ou de uma página do Caderno.');
   return {
-    productId: String(input.productId),
+    productId: input.productId ? String(input.productId) : null,
+    pageId: input.pageId ? String(input.pageId) : null,
     title: requiredText(input.title, 'A tarefa', 2, 200),
     status: pick(TASK_STATUS, input.status, 'todo'),
     assigneeId: idOrNull(input.assigneeId),

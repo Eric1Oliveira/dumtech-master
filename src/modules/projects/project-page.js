@@ -27,6 +27,7 @@ import { renewalBadge, editAsset, monitorBadge } from '../infrastructure/index.j
 import { linkSubscription, editSubscription, markPaid, undoPayment, monthCell } from '../customers/billing-ui.js';
 import { loadProjects, summarizeProject } from './project-data.js';
 import { editProject } from './project-form.js';
+import { newPage } from '../workspace/new-page.js';
 
 /** @typedef {ReturnType<typeof summarizeProject>} Project */
 /** @typedef {import('../../services/data.js').Asset} Asset */
@@ -70,10 +71,10 @@ export async function renderProjectPage({ root, module, signal }, id) {
     document.title = `${pr.name} · ${module.name} — DUMTech Master`;
     const stage = pr.status;
     const sections = {
-      proposal: () => [proposalPanel(s), kitPanel(), subsPanel(), filesPanel()],
-      building: () => [checklistPanel(), kitPanel(), subsPanel(), filesPanel(), s.proposals.length ? proposalPanel(s) : ''],
-      live: () => [uptimePanel(), subsPanel(), moneyPanel(s), kitPanel(), entriesPanel(), filesPanel(), s.tasks.length ? checklistPanel(true) : '', s.proposals.length ? proposalPanel(s) : ''],
-      ended: () => [subsPanel(), kitPanel(), entriesPanel(), filesPanel(), s.proposals.length ? proposalPanel(s) : ''],
+      proposal: () => [proposalPanel(s), notebookPanel(), kitPanel(), subsPanel(), filesPanel()],
+      building: () => [checklistPanel(), notebookPanel(), kitPanel(), subsPanel(), filesPanel(), s.proposals.length ? proposalPanel(s) : ''],
+      live: () => [uptimePanel(), subsPanel(), moneyPanel(s), notebookPanel(), kitPanel(), entriesPanel(), filesPanel(), s.tasks.length ? checklistPanel(true) : '', s.proposals.length ? proposalPanel(s) : ''],
+      ended: () => [subsPanel(), notebookPanel(), kitPanel(), entriesPanel(), filesPanel(), s.proposals.length ? proposalPanel(s) : ''],
     };
     setHtml(
       root,
@@ -266,6 +267,35 @@ export async function renderProjectPage({ root, module, signal }, id) {
   };
 
   const manageFiles = canDo('workspace.manage');
+
+  /** Caderno do projeto: páginas e reuniões ligadas + o que ficou combinado nas atas. */
+  const notebookPanel = () => {
+    const s = /** @type {Project} */ (p);
+    if (!canDo('workspace.view')) return '';
+    const pages = [...s.pages].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 8);
+    const open = s.pageTasks.filter((t) => t.status !== 'done');
+    return html`<section class="panel" aria-labelledby="nb-title">
+      <header class="panel__head">
+        <div><h2 class="panel__title" id="nb-title">Caderno do projeto</h2><p class="panel__hint">Páginas, reuniões e o que ficou combinado nas atas</p></div>
+        ${manageFiles
+          ? html`<div class="panel__tools">
+              <button type="button" class="btn btn--secondary btn--sm" data-action="nb-page">${icon('plus')}<span>Página</span></button>
+              <button type="button" class="btn btn--secondary btn--sm" data-action="nb-meeting">${icon('plus')}<span>Reunião</span></button>
+            </div>`
+          : ''}
+      </header>
+      ${pages.length || open.length
+        ? html`${pages.length
+            ? html`<ul class="nb-list">${pages.map((pg) => html`<li><a class="nb-list__link" href="#/workspace/${pg.id}"><span class="nb-list__icon" aria-hidden="true">${pg.icon || (pg.kind === 'meeting' ? '🎙️' : '📄')}</span><span class="nb-list__title">${pg.title || 'Sem título'}</span><small>editada ${formatRelative(pg.updatedAt)}</small></a></li>`)}</ul>`
+            : ''}
+          ${open.length
+            ? html`<h3 class="subhead">Combinado nas reuniões</h3>
+              <ul class="nb-list">${open.map((t) => html`<li><a class="nb-list__link" href="#/workspace/${t.pageId}"><span class="nb-list__icon" aria-hidden="true">☐</span><span class="nb-list__title">${t.title}</span><small>${[t.assigneeName, t.dueDate ? `até ${formatDate(t.dueDate)}` : ''].filter(Boolean).join(' · ')}</small></a></li>`)}</ul>`
+            : ''}`
+        : emptyState({ title: 'Nada no Caderno ainda', text: 'Crie o briefing, registre reuniões e a ata sai com as tarefas.', compact: true })}
+    </section>`;
+  };
+
   const filesPanel = () => {
     const s = /** @type {Project} */ (p);
     if (!s.files) return '';
@@ -503,6 +533,20 @@ export async function renderProjectPage({ root, module, signal }, id) {
       try {
         await data.products.save(org.id, /** @type {any} */ ({ ...pr, setupPaidOn: pr.setupPaidOn ? null : today(), setupOutside: false }), pr.id);
         done(pr.setupPaidOn ? 'Recebimento desfeito.' : 'Implantação recebida.');
+      } catch (error) {
+        toastError(error);
+      }
+    },
+    'nb-page': async () => {
+      try {
+        location.hash = `#/workspace/${await newPage(org.id, { productId: id, templateId: 'briefing' })}`;
+      } catch (error) {
+        toastError(error);
+      }
+    },
+    'nb-meeting': async () => {
+      try {
+        location.hash = `#/workspace/${await newPage(org.id, { productId: id, templateId: 'meeting' })}`;
       } catch (error) {
         toastError(error);
       }

@@ -228,7 +228,45 @@ import { supabaseBackend } from './supabase.js';
  * @property {string} updatedAt
  */
 
-/** @typedef {TaskInput & { id: string, assigneeName: string, projectName: string, doneAt: string | null, createdAt: string }} Task */
+/** @typedef {TaskInput & { id: string, assigneeName: string, projectName: string, pageTitle: string, doneAt: string | null, createdAt: string }} Task */
+/**
+ * Página do Caderno (sem o conteúdo; a lista é leve).
+ * @typedef {Object} PageMeta
+ * @property {string} id
+ * @property {string | null} parentId
+ * @property {'page' | 'meeting'} kind
+ * @property {string} title
+ * @property {string} icon
+ * @property {string | null} productId
+ * @property {string | null} customerId
+ * @property {number} position
+ * @property {string | null} archivedAt
+ * @property {string | null} editingBy
+ * @property {string | null} editingAt
+ * @property {string} editingName
+ * @property {string | null} meetingDate
+ * @property {string} editorName
+ * @property {string} createdAt
+ * @property {string} updatedAt
+ */
+/**
+ * Reunião: data, duração, quem participou e a transcrição (texto; o áudio nunca vai ao servidor).
+ * @typedef {{ date: string, durationS: number, participants: string[], transcript: import('../core/minutes.js').Segment[] }} Meeting
+ */
+/** @typedef {PageMeta & { content: import('../core/blocks.js').Block[], meeting: Meeting | null }} Page */
+/**
+ * @typedef {Object} PageInput
+ * @property {string | null} [parentId]
+ * @property {'page' | 'meeting'} [kind]
+ * @property {string} [title]
+ * @property {string} [icon]
+ * @property {import('../core/blocks.js').Block[]} [content]
+ * @property {Meeting | null} [meeting]
+ * @property {string} [searchText]
+ * @property {string | null} [productId]
+ * @property {string | null} [customerId]
+ * @property {number} [position]
+ */
 
 /**
  * Operações padrão de uma tabela da organização.
@@ -347,10 +385,22 @@ import { supabaseBackend } from './supabase.js';
  *   set: (orgId: string, config: { token: string, chatId: string, chatName: string } | null) => Promise<void>,
  *   test: (orgId: string) => Promise<boolean>,
  * }} telegram      avisos no celular (o token fica só no servidor)
- * @property {OrgTable<Doc, DocumentInput>} documents
+ * @property {OrgTable<Doc, DocumentInput>} documents   legado (virou páginas do Caderno)
+ * @property {{
+ *   list: (orgId: string) => Promise<PageMeta[]>,
+ *   get: (orgId: string, id: string) => Promise<Page | null>,
+ *   create: (orgId: string, input: PageInput) => Promise<{ id: string, updatedAt: string }>,
+ *   save: (orgId: string, id: string, changes: PageInput, expectedUpdatedAt?: string | null) => Promise<{ updatedAt: string }>,
+ *   archive: (orgId: string, id: string, archived: boolean) => Promise<void>,
+ *   remove: (orgId: string, id: string) => Promise<void>,
+ *   heartbeat: (orgId: string, id: string, on: boolean) => Promise<void>,
+ *   versions: (orgId: string, pageId: string) => Promise<{ id: string, title: string, createdAt: string, authorName: string }[]>,
+ *   version: (orgId: string, id: string) => Promise<{ title: string, content: import('../core/blocks.js').Block[] }>,
+ *   search: (orgId: string, query: string) => Promise<{ id: string, title: string, icon: string, kind: 'page' | 'meeting' }[]>,
+ * }} pages   Caderno (save com expectedUpdatedAt recusa por cima de outra pessoa: erro com code 'conflict')
  * @property {{
  *   list: (orgId: string) => Promise<WorkspaceFile[]>,
- *   upload: (orgId: string, file: File, productId?: string | null) => Promise<void>,
+ *   upload: (orgId: string, file: File, productId?: string | null) => Promise<WorkspaceFile>,
  *   link: (orgId: string, file: WorkspaceFile) => Promise<string>,
  *   remove: (orgId: string, file: WorkspaceFile) => Promise<void>,
  * }} files          Supabase Storage (bucket privado)

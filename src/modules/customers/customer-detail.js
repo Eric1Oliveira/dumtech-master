@@ -1,7 +1,7 @@
 // Ficha do cliente (#/customers/<id>): dados, contatos, o que usa e paga, cobranças, propostas e projetos.
 
 import { html, setHtml, $, bindActions } from '../../shared/utils/dom.js';
-import { formatDate, formatMoney, formatMonth, formatInteger } from '../../shared/utils/format.js';
+import { formatDate, formatMoney, formatMonth, formatInteger, formatRelative } from '../../shared/utils/format.js';
 import { getState } from '../../core/state.js';
 import { CUSTOMER_STATUS, CUSTOMER_KINDS, formatDocument, whatsappLink } from '../../core/customers.js';
 import { billingStatus, monthKey } from '../../core/billing.js';
@@ -48,6 +48,8 @@ export async function renderCustomerDetail({ root, module, signal }, id) {
   let proposals = null;
   /** @type {Map<string, string>} etapa de cada projeto */
   let stages = new Map();
+  /** @type {import('../../services/data.js').PageMeta[]} páginas do Caderno ligadas ao cliente */
+  let pages = [];
 
   const load = async () => {
     let all;
@@ -62,6 +64,7 @@ export async function renderCustomerDetail({ root, module, signal }, id) {
     ]);
     customer = all.find((c) => c.id === id);
     stages = new Map(products.map((p) => /** @type {[string, string]} */ ([p.id, p.status])));
+    pages = canDo('workspace.view') ? (await data.pages.list(org.id).catch(() => [])).filter((p) => p.customerId === id && !p.archivedAt) : [];
     const mine = new Set(subs.map((s) => s.id));
     payments = payments.filter((p) => mine.has(p.subscriptionId));
   };
@@ -128,6 +131,7 @@ export async function renderCustomerDetail({ root, module, signal }, id) {
                 </section>`
               : ''}
             ${proposals ? html`<section class="panel" aria-labelledby="prop-title"><header class="panel__head"><h2 class="panel__title" id="prop-title">Propostas</h2></header><div data-proposals></div></section>` : ''}
+            ${pages.length ? html`<section class="panel" aria-labelledby="nb-title"><header class="panel__head"><h2 class="panel__title" id="nb-title">Caderno</h2></header><ul class="nb-list">${pages.map((pg) => html`<li><a class="nb-list__link" href="#/workspace/${pg.id}"><span class="nb-list__icon" aria-hidden="true">${pg.icon || (pg.kind === 'meeting' ? '🎙️' : '📄')}</span><span class="nb-list__title">${pg.title || 'Sem título'}</span><small>editada ${formatRelative(pg.updatedAt)}</small></a></li>`)}</ul></section>` : ''}
           </div>
           <aside class="detail-aside">
             <section class="panel" aria-labelledby="contact-title">

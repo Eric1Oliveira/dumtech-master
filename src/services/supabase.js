@@ -11,6 +11,7 @@ import { normalizeProposal } from '../core/proposals.js';
 import { normalizeTask } from '../core/projects.js';
 import { normalizeAsset, normalizeMonitor } from '../core/infra.js';
 import { normalizeDocument, safeFileName, FILE_MAX_BYTES } from '../core/workspace.js';
+import { normalizeBlocks } from '../core/blocks.js';
 
 /** @typedef {import('@supabase/supabase-js').SupabaseClient} SupabaseClient */
 
@@ -194,6 +195,23 @@ const financeItem = (/** @type {any} */ r) => ({
   remoteId: r.remote_id ?? null,
   linkedAt: r.linked_at ?? null,
 });
+
+/** PageInput → colunas de pages (só as que vieram). @param {import('./data.js').PageInput} input */
+function pageRow(input) {
+  /** @type {Record<string, any>} */
+  const row = {};
+  if ('parentId' in input) row.parent_id = input.parentId ?? null;
+  if ('kind' in input) row.kind = input.kind === 'meeting' ? 'meeting' : 'page';
+  if ('title' in input) row.title = String(input.title ?? '').slice(0, 200);
+  if ('icon' in input) row.icon = String(input.icon ?? '').slice(0, 16);
+  if ('content' in input) row.content = normalizeBlocks(input.content);
+  if ('meeting' in input) row.meeting = input.meeting ?? null;
+  if ('searchText' in input) row.search_text = String(input.searchText ?? '').slice(0, 300000);
+  if ('productId' in input) row.product_id = input.productId ?? null;
+  if ('customerId' in input) row.customer_id = input.customerId ?? null;
+  if ('position' in input) row.position = Number(input.position) || 0;
+  return row;
+}
 
 /** @type {import('./data.js').Backend} */
 export const supabaseBackend = {
@@ -594,10 +612,10 @@ export const supabaseBackend = {
   },
 
   tasks: orgTable('tasks', {
-    select: '*, assignee:profiles!tasks_assignee_id_fkey(full_name, email), product:products(name)',
+    select: '*, assignee:profiles!tasks_assignee_id_fkey(full_name, email), product:products(name), page:pages(title)',
     order: 'position',
     normalize: normalizeTask,
-    map: ({ assignee, product, projectId: _legacy, ...r }) => ({ ...r, assigneeName: personName(assignee), projectName: product?.name ?? '' }),
+    map: ({ assignee, product, page, projectId: _legacy, ...r }) => ({ ...r, pageId: r.pageId ?? null, assigneeName: personName(assignee), projectName: product?.name ?? '', pageTitle: page?.title ?? '' }),
     denied: 'Seu papel não permite editar tarefas.',
     fixed: ['product_id'],
   }),
@@ -781,6 +799,74 @@ export const supabaseBackend = {
     denied: 'Seu papel não permite editar documentos.',
   }),
 
+  pages: {
+    async list(orgId) {
+      const sb = await getClient();
+      const rows = unwrap(await sb.from('pages')
+        .select('id, parent_id, kind, title, icon, product_id, customer_id, position, archived_at, editing_by, editing_at, created_at, updated_at, meeting_date:meeting->>date, editor:profiles!pages_updated_by_fkey(full_name, email), locker:profiles!pages_editing_by_fkey(full_name, email)')
+        .eq('org_id', orgId).order('position'));
+      return /** @type {any[]} */ (rows).map(({ editor, locker, ...r }) => ({ ...fromRow(r), meetingDate: r.meeting_date ?? null, editorName: personName(editor), editingName: personName(locker) }));
+    },
+    async get(orgId, id) {
+      const sb = await getClient();
+      const row = unwrap(await sb.from('pages')
+        .select('id, parent_id, kind, title, icon, content, meeting, product_id, customer_id, position, archived_at, editing_by, editing_at, created_at, updated_at, editor:profiles!pages_updated_by_fkey(full_name, email), locker:profiles!pages_editing_by_fkey(full_name, email)')
+        .eq('org_id', orgId).eq('id', id).maybeSingle());
+      if (!row) return null;
+      const { editor, locker, ...r } = /** @type {any} */ (row);
+      return { ...fromRow(r), content: normalizeBlocks(r.content), meetingDate: r.meeting?.date ?? null, editorName: personName(editor), editingName: personName(locker) };
+    },
+    async create(orgId, input) {
+      const sb = await getClient();
+      const row = pageRow(input);
+      const created = unwrap(await sb.from('pages').insert({ ...row, org_id: orgId }).select('id, updated_at').single());
+      return { id: created.id, updatedAt: created.updated_at };
+    },
+    async save(orgId, id, changes, expectedUpdatedAt = null) {
+      const sb = await getClient();
+      let query = sb.from('pages').update(pageRow(changes)).eq('id', id).eq('org_id', orgId);
+      if (expectedUpdatedAt) query = query.eq('updated_at', expectedUpdatedAt);
+      const rows = unwrap(await query.select('updated_at'));
+      if (rows.length) return { updatedAt: rows[0].updated_at };
+      const exists = unwrap(await sb.from('pages').select('id').eq('id', id).eq('org_id', orgId).maybeSingle());
+      if (exists && expectedUpdatedAt) throw Object.assign(new Error('Outra pessoa salvou esta página enquanto você editava.'), { code: 'conflict' });
+      throw new Error(exists ? 'Seu papel não permite editar páginas.' : 'Esta página não existe mais.');
+    },
+    async archive(orgId, id, archived) {
+      const sb = await getClient();
+      const rows = unwrap(await sb.from('pages').update({ archived_at: archived ? new Date().toISOString() : null }).eq('id', id).eq('org_id', orgId).select('id'));
+      if (!rows.length) throw new Error('Seu papel não permite editar páginas.');
+    },
+    async remove(orgId, id) {
+      const sb = await getClient();
+      const rows = unwrap(await sb.from('pages').delete().eq('id', id).eq('org_id', orgId).select('id'));
+      if (!rows.length) throw new Error('Seu papel não permite excluir páginas.');
+    },
+    async heartbeat(_orgId, id, on) {
+      const sb = await getClient();
+      unwrap(await sb.rpc('page_heartbeat', { p_id: id, p_on: on }));
+    },
+    async versions(orgId, pageId) {
+      const sb = await getClient();
+      const rows = unwrap(await sb.from('page_versions').select('id, title, created_at, author:profiles!page_versions_created_by_fkey(full_name, email)')
+        .eq('org_id', orgId).eq('page_id', pageId).order('created_at', { ascending: false }).limit(50));
+      return /** @type {any[]} */ (rows).map((r) => ({ id: r.id, title: r.title, createdAt: r.created_at, authorName: personName(r.author) }));
+    },
+    async version(orgId, id) {
+      const sb = await getClient();
+      const row = unwrap(await sb.from('page_versions').select('title, content').eq('org_id', orgId).eq('id', id).single());
+      return { title: row.title, content: normalizeBlocks(row.content) };
+    },
+    async search(orgId, query) {
+      const sb = await getClient();
+      const q = String(query).replace(/[%_\\,()*"]/g, ' ').trim().slice(0, 80);
+      if (q.length < 2) return [];
+      const rows = unwrap(await sb.from('pages').select('id, title, icon, kind').eq('org_id', orgId).is('archived_at', null)
+        .ilike('search_text', `%${q}%`).order('updated_at', { ascending: false }).limit(30));
+      return /** @type {any[]} */ (rows);
+    },
+  },
+
   files: {
     async list(orgId) {
       const sb = await getClient();
@@ -793,11 +879,12 @@ export const supabaseBackend = {
       const path = `${orgId}/${globalThis.crypto.randomUUID()}-${safeFileName(file.name)}`;
       const sent = await sb.storage.from('workspace').upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false });
       if (sent.error) throw toError(sent.error);
-      const meta = await sb.from('workspace_files').insert({ org_id: orgId, path, name: file.name.slice(0, 200), size: file.size, mime: file.type || null, product_id: productId });
+      const meta = await sb.from('workspace_files').insert({ org_id: orgId, path, name: file.name.slice(0, 200), size: file.size, mime: file.type || null, product_id: productId }).select('id, created_at').single();
       if (meta.error) {
         await sb.storage.from('workspace').remove([path]);
         throw toError(meta.error);
       }
+      return { id: meta.data.id, path, name: file.name.slice(0, 200), size: file.size, mime: file.type || null, productId, uploaderName: '', createdAt: meta.data.created_at };
     },
     async link(_orgId, file) {
       const sb = await getClient();

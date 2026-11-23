@@ -47,7 +47,7 @@ export const greeting = (hour = new Date().getHours()) => (hour < 5 ? 'Boa noite
  *   setups?: { productId: string, name: string, customerName: string, amountLabel: string }[],
  *   adjustments?: { subId: string, customerName: string, productName: string, date: string, label: string }[],
  *   assets?: { id: string, name: string, status: string, renewsAt: string | null, kindLabel?: string }[],
- *   tasks?: { id: string, title: string, status: string, dueDate: string | null, productId: string, projectName?: string, assigneeId?: string | null, assigneeName?: string | null }[],
+ *   tasks?: { id: string, title: string, status: string, dueDate: string | null, productId: string | null, pageId?: string | null, projectName?: string, pageTitle?: string, assigneeId?: string | null, assigneeName?: string | null }[],
  *   proposals?: { id: string, number: number, title: string, status: string, validUntil: string | null, customerName?: string }[],
  * }} sources
  * @param {string} todayKey
@@ -78,7 +78,7 @@ export function todayList({ monitors = [], billings = [], setups = [], adjustmen
   for (const t of tasks) {
     if (t.status === 'done' || !t.dueDate || t.dueDate > todayKey) continue;
     const who = t.assigneeId && t.assigneeId === me ? 'você' : t.assigneeName || '';
-    items.push({ kind: 'task', rank: 6, tone: t.dueDate < todayKey ? 'error' : 'warn', title: t.title, context: [t.projectName, who].filter(Boolean).join(' · '), date: t.dueDate, href: `#/projects/${t.productId}`, id: t.id });
+    items.push({ kind: 'task', rank: 6, tone: t.dueDate < todayKey ? 'error' : 'warn', title: t.title, context: [t.projectName || t.pageTitle, who].filter(Boolean).join(' · '), date: t.dueDate, href: t.productId ? `#/projects/${t.productId}` : `#/workspace/${t.pageId}`, id: t.id });
   }
   for (const p of proposals) {
     if (p.status !== 'sent') continue;

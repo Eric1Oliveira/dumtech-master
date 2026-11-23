@@ -35,7 +35,7 @@ function buildCommands() {
       group: 'Módulos',
       label: m.name,
       hint: m.code,
-      keywords: `${m.code} ${m.group} ${m.summary}`,
+      keywords: `${m.code} ${m.group} ${m.summary} ${m.keywords ?? ''}`,
       run: () => navigate(`/${m.id}`),
     });
     for (const s of m.sections ?? []) {

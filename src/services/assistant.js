@@ -516,15 +516,18 @@ async function finance() {
 
 /** @param {Q} q @returns {Promise<Reply>} */
 async function documents(q) {
-  if (!canDo('workspace.view')) return denied('o Workspace');
-  const list = await data.documents.list(orgId());
+  if (!canDo('workspace.view')) return denied('o Caderno');
+  const list = (await data.pages.list(orgId())).filter((p) => !p.archivedAt);
   const words = q.terms.split(' ').filter((w) => w.length > 2);
-  const rows = words.length ? list.filter((d) => words.every((w) => normalize(`${d.title} ${d.body}`).includes(w))) : list;
+  // Título na hora; conteúdo (inclusive transcrição das reuniões) pela busca do servidor.
+  const found = words.length ? await data.pages.search(orgId(), q.terms).catch(() => []) : [];
+  const ids = new Set(found.map((f) => f.id));
+  const rows = words.length ? list.filter((d) => ids.has(d.id) || words.every((w) => normalize(d.title).includes(w))) : list.slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   return {
     text: rows.length
-      ? `${plural(rows.length, 'documento', 'documentos')}${words.length ? ` com “${q.terms}”` : ' no Workspace'}.${more(rows.length)}`
-      : `Nenhum documento com “${q.terms}”.`,
-    items: rows.slice(0, MAX).map((d) => ({ label: d.title, sub: `editado ${formatRelative(d.updatedAt)}${d.editorName ? ` por ${d.editorName}` : ''}`, href: `#/workspace/${d.id}` })),
+      ? `${plural(rows.length, 'página', 'páginas')}${words.length ? ` com “${q.terms}”` : ' no Caderno'}.${more(rows.length)}`
+      : `Nenhuma página com “${q.terms}”.`,
+    items: rows.slice(0, MAX).map((d) => ({ label: `${d.icon || (d.kind === 'meeting' ? '🎙️' : '📄')} ${d.title || 'Sem título'}`, sub: `${d.kind === 'meeting' ? 'reunião · ' : ''}editada ${formatRelative(d.updatedAt)}${d.editorName ? ` por ${d.editorName}` : ''}`, href: `#/workspace/${d.id}` })),
   };
 }
 

@@ -20,7 +20,7 @@ const SUBJECTS = [
   { intent: 'notifications', words: ['aviso', 'notificac', 'alerta'] },
   { intent: 'automations', words: ['automac', 'rotina', 'lembrete'] },
   { intent: 'vault', words: ['senha', 'cofre', 'segredo', 'credencia', 'vault', 'token', 'chave de api'] },
-  { intent: 'documents', words: ['documento', 'nota', 'arquivo', 'workspace', 'anotac'] },
+  { intent: 'documents', words: ['documento', 'nota', 'arquivo', 'workspace', 'anotac', 'caderno', 'pagina', 'reuniao', 'ata'] },
   { intent: 'analytics', words: ['analytics', 'evento', 'uso do', 'acessos', 'metrica'] },
   { intent: 'finance', words: ['faturamento', 'lucro', 'receita', 'financeiro', 'financesolux', 'mrr', 'dinheiro', 'caixa'] },
 ];

@@ -123,3 +123,94 @@ export function responseSeries({ checks, hourly }, range, now = Date.now()) {
     .map((h) => ({ t: Date.parse(h.hour), value: /** @type {number} */ (h.msAvg), high: h.msP95 ?? undefined }))
     .sort((a, b) => a.t - b.t);
 }
+
+// Horário do "No ar" -------------------------------------------------------------------------
+// Dias: 0 = domingo … 6 = sábado. Sem faixa (from/to nulos) = o dia inteiro. Faixa que passa da
+// meia-noite (18h às 2h) vale para o dia em que começa. Igual a public.monitor_in_window (Brasília).
+
+/** @typedef {{ checkDays?: number[] | null, checkFrom?: string | null, checkTo?: string | null }} Schedule */
+
+export const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
+
+/** Horários prontos para escolher na tela. */
+export const SCHEDULE_PRESETS = [
+  { id: 'always', label: 'O dia todo, todo dia', checkDays: ALL_DAYS, checkFrom: null, checkTo: null },
+  { id: 'business', label: 'Comercial: seg a sex, 8h às 18h', checkDays: [1, 2, 3, 4, 5], checkFrom: '08:00', checkTo: '18:00' },
+  { id: 'shop', label: 'Comércio: seg a sáb, 8h às 22h', checkDays: [1, 2, 3, 4, 5, 6], checkFrom: '08:00', checkTo: '22:00' },
+  { id: 'night', label: 'Noite (restaurante): todo dia, 17h às 2h', checkDays: ALL_DAYS, checkFrom: '17:00', checkTo: '02:00' },
+];
+
+/** "08:00:00" → "08:00"; vazio → null. @param {unknown} v */
+const hhmm = (v) => {
+  const m = String(v ?? '').match(/^(\d{1,2}):(\d{2})/);
+  if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return null;
+  return `${m[1].padStart(2, '0')}:${m[2]}`;
+};
+/** @param {string} t "HH:MM" */
+const minutesOf = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+
+/** Valida o horário do formulário. @param {Record<string, any>} input @returns {{ checkDays: number[], checkFrom: string | null, checkTo: string | null }} */
+export function normalizeSchedule(input) {
+  const raw = Array.isArray(input.checkDays) ? input.checkDays : ALL_DAYS;
+  const days = [...new Set(raw.map(Number).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort();
+  if (!days.length) throw new Error('Escolha pelo menos um dia da semana.');
+  const from = hhmm(input.checkFrom);
+  const to = hhmm(input.checkTo);
+  if (Boolean(from) !== Boolean(to)) throw new Error('Informe o início e o fim do horário (ou deixe os dois vazios para o dia todo).');
+  if (from && from === to) throw new Error('O início e o fim do horário não podem ser iguais.');
+  return { checkDays: days, checkFrom: from, checkTo: to };
+}
+
+/** @param {Schedule} s */
+const daysOf = (s) => (Array.isArray(s.checkDays) && s.checkDays.length ? s.checkDays : ALL_DAYS);
+
+/** Dia da semana e minuto do dia em Brasília. @param {number} now */
+function brasilia(now) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', { timeZone: 'America/Sao_Paulo', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+      .formatToParts(new Date(now))
+      .map((p) => [p.type, p.value]),
+  );
+  return { dow: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(parts.weekday), min: Number(parts.hour) * 60 + Number(parts.minute) };
+}
+
+/** O servidor está verificando agora? @param {Schedule} s @param {number} [now] */
+export function inWindow(s, now = Date.now()) {
+  const days = daysOf(s);
+  const { dow, min } = brasilia(now);
+  const from = hhmm(s.checkFrom);
+  const to = hhmm(s.checkTo);
+  if (!from || !to) return days.includes(dow);
+  const a = minutesOf(from);
+  const b = minutesOf(to);
+  if (a < b) return days.includes(dow) && min >= a && min < b;
+  return (days.includes(dow) && min >= a) || (days.includes((dow + 6) % 7) && min < b);
+}
+
+/** "08:00" → "8h"; "08:30" → "8h30". @param {string} t */
+const hourText = (t) => `${Number(t.slice(0, 2))}h${t.slice(3, 5) === '00' ? '' : t.slice(3, 5)}`;
+
+/** Horário em português: "todo dia, 24 h", "seg a sex, 8h às 18h", "seg, qua, sex, 9h às 12h". @param {Schedule} s */
+export function scheduleText(s) {
+  const days = daysOf(s);
+  const from = hhmm(s.checkFrom);
+  const to = hhmm(s.checkTo);
+  let d;
+  if (days.length === 7) d = 'todo dia';
+  else {
+    const sorted = [...days].sort();
+    const run = sorted.every((x, i) => i === 0 || x === sorted[i - 1] + 1);
+    d = run && sorted.length > 2 ? `${WEEKDAYS[sorted[0]].toLowerCase()} a ${WEEKDAYS[sorted[sorted.length - 1]].toLowerCase()}` : sorted.map((x) => WEEKDAYS[x].toLowerCase()).join(', ');
+  }
+  return from && to ? `${d}, ${hourText(from)} às ${hourText(to)}` : `${d}, 24 h`;
+}
+
+/** Verificações por mês (1 por minuto) — para mostrar a economia. @param {Schedule} s */
+export function checksPerMonth(s) {
+  const days = daysOf(s).length;
+  const from = hhmm(s.checkFrom);
+  const to = hhmm(s.checkTo);
+  const perDay = from && to ? (minutesOf(to) - minutesOf(from) + 1440) % 1440 : 1440;
+  return Math.round(((days * perDay) / 7) * 30.44);
+}

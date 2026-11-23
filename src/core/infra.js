@@ -2,6 +2,7 @@
 // Compartilhado = usado por vários projetos (asset_projects); exclusivo = de um projeto (productId).
 
 import { requiredText, optionalText, longText, money, dateOrNull, pick, idOrNull, urlOrNull, today } from './validate.js';
+import { normalizeSchedule } from './monitor.js';
 
 export const ASSET_KINDS = /** @type {const} */ ([
   { key: 'domain', label: 'Domínio', icon: 'globe' },
@@ -104,6 +105,7 @@ export function normalizeMonitor(input) {
     label: requiredText(input.label, 'O nome', 1, 120),
     url,
     enabled: input.enabled !== false && input.enabled !== 'false',
+    ...normalizeSchedule(input),
   };
 }
 

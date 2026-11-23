@@ -7,6 +7,7 @@ import { formatDate, formatMoney, formatDateTime } from '../../shared/utils/form
 import { getState } from '../../core/state.js';
 import { ASSET_KINDS, COST_PERIODS, SPLIT_RULES, daysUntil, isPublicHttps, normalizeAsset } from '../../core/infra.js';
 import { serviceCosts } from '../../core/costs.js';
+import { SCHEDULE_PRESETS, WEEKDAYS, normalizeSchedule, scheduleText, inWindow, checksPerMonth } from '../../core/monitor.js';
 import { registrableDomain, lookupExpiration } from '../../core/rdap.js';
 import { labelOf } from '../../core/validate.js';
 import { data } from '../../services/data.js';
@@ -45,11 +46,91 @@ const MONITOR_STATE = /** @type {Record<string, [string, string]>} */ ({
 /** Estado do "No ar" de um monitor (com o tempo de resposta quando houver). @param {Monitor} m */
 export function monitorBadge(m) {
   if (!m.enabled) return muted('desligado');
+  if (!inWindow(m)) {
+    return html`<span class="avail" title="Fora do horário (${scheduleText(m)}): o servidor não verifica agora. Último estado: ${(MONITOR_STATE[m.state] ?? MONITOR_STATE.unknown)[1]}.">
+      <span class="status-dot" aria-hidden="true"></span>Fora do horário</span>`;
+  }
   const [tone, label] = MONITOR_STATE[m.state] ?? MONITOR_STATE.unknown;
   return html`<span class="avail" title="${m.lastCheckAt ? `Última verificação: ${formatDateTime(m.lastCheckAt)}` : 'Aguardando a primeira verificação do servidor'}">
     <span class="status-dot status-dot--${tone}" aria-hidden="true"></span>${label}${m.lastMs ? html` <small class="muted">${m.lastMs} ms</small>` : ''}</span>`;
 }
 
+/**
+ * Horário do "No ar" de um monitor (ou de todos). Fora do horário o servidor não verifica nem grava.
+ * @param {Monitor} monitor
+ * @returns {Promise<boolean>}
+ */
+export async function editSchedule(monitor) {
+  const { org } = getState();
+  const all = await data.monitors.list(org.id).catch(() => [monitor]);
+  const preset = SCHEDULE_PRESETS.find((p) => scheduleText(p) === scheduleText(monitor))?.id ?? 'custom';
+  const days = monitor.checkDays?.length ? monitor.checkDays : [0, 1, 2, 3, 4, 5, 6];
+  const pending = openDialog({
+    title: 'Horário de verificação',
+    description: `${monitor.label}. Fora do horário o servidor não verifica nem grava nada (economiza o banco). "Verificar agora" funciona a qualquer hora. Horário de Brasília.`,
+    wide: true,
+    body: html`<div class="choice-row sched-presets" role="radiogroup" aria-label="Horários prontos">
+        ${SCHEDULE_PRESETS.map((p) => html`<label class="choice"><input type="radio" name="preset" value="${p.id}" ${preset === p.id ? html`checked` : ''}><span><strong>${p.label}</strong><small>${checksPerMonth(p).toLocaleString('pt-BR')} verificações/mês</small></span></label>`)}
+        <label class="choice"><input type="radio" name="preset" value="custom" ${preset === 'custom' ? html`checked` : ''}><span><strong>Personalizado</strong><small>Escolha os dias e as horas</small></span></label>
+      </div>
+      <fieldset class="sched-days"><legend class="field__label">Dias</legend>
+        ${WEEKDAYS.map((d, i) => html`<label class="sched-day"><input type="checkbox" name="day" value="${i}" ${days.includes(i) ? html`checked` : ''}><span>${d}</span></label>`)}
+      </fieldset>
+      <div class="form-grid">
+        <label class="field"><span class="field__label">Das</span><input class="input" type="time" name="from" value="${monitor.checkFrom?.slice(0, 5) ?? ''}"><span class="field__hint">Vazio = o dia todo</span></label>
+        <label class="field"><span class="field__label">Até</span><input class="input" type="time" name="to" value="${monitor.checkTo?.slice(0, 5) ?? ''}"><span class="field__hint">Pode passar da meia-noite (ex.: 17h às 2h)</span></label>
+      </div>
+      <p class="notice sched-summary" data-sched-summary></p>
+      ${all.length > 1 ? html`<label class="checkbox"><input type="checkbox" name="all"> <span>Usar este horário em todos os ${all.length} monitores</span></label>` : ''}`,
+    submitLabel: 'Salvar horário',
+    onSubmit: async (form) => {
+      const schedule = normalizeSchedule({ checkDays: form.getAll('day'), checkFrom: form.get('from'), checkTo: form.get('to') });
+      const targets = form.get('all') === 'on' ? all : [monitor];
+      for (const m of targets) await data.monitors.save(org.id, /** @type {any} */ ({ ...m, ...schedule }), m.id);
+    },
+  });
+  const form = /** @type {HTMLFormElement | null} */ ([...document.querySelectorAll('dialog[open] form')].at(-1) ?? null);
+  if (form) {
+    form.addEventListener('change', (e) => scheduleChange(form, /** @type {HTMLInputElement} */ (e.target)));
+    scheduleSummary(form);
+  }
+  const ok = await pending;
+  if (ok) toast('Horário salvo. O servidor segue esse horário a partir do próximo minuto.', 'success');
+  return ok;
+}
+
+/** Horário pronto preenche os campos; mexer nos campos vira "Personalizado". @param {HTMLFormElement} form @param {HTMLInputElement} target */
+function scheduleChange(form, target) {
+  if (target.name === 'preset') {
+    const p = SCHEDULE_PRESETS.find((x) => x.id === target.value);
+    if (p) {
+      for (const box of /** @type {HTMLInputElement[]} */ ([...form.querySelectorAll('[name="day"]')])) box.checked = p.checkDays.includes(Number(box.value));
+      /** @type {HTMLInputElement} */ (form.querySelector('[name="from"]')).value = p.checkFrom ?? '';
+      /** @type {HTMLInputElement} */ (form.querySelector('[name="to"]')).value = p.checkTo ?? '';
+    }
+  } else if (['day', 'from', 'to'].includes(target.name)) {
+    const custom = /** @type {HTMLInputElement | null} */ (form.querySelector('[name="preset"][value="custom"]'));
+    if (custom) custom.checked = true;
+  }
+  scheduleSummary(form);
+}
+
+/** Texto do horário escolhido e quanto economiza. @param {HTMLFormElement} form */
+function scheduleSummary(form) {
+  const box = form.querySelector('[data-sched-summary]');
+  if (!box) return;
+  const f = new FormData(form);
+  try {
+    const s = normalizeSchedule({ checkDays: f.getAll('day'), checkFrom: f.get('from'), checkTo: f.get('to') });
+    const n = checksPerMonth(s);
+    const full = checksPerMonth({});
+    box.textContent = `Verifica ${scheduleText(s)}: cerca de ${n.toLocaleString('pt-BR')} verificações por mês${n < full ? ` (${Math.round((1 - n / full) * 100)}% a menos que o dia todo)` : ''}.`;
+    box.classList.remove('notice--warn');
+  } catch (error) {
+    box.textContent = /** @type {Error} */ (error).message;
+    box.classList.add('notice--warn');
+  }
+}
 /**
  * Cadastro/edição de serviço, em camadas: tipo e nome → usado por → quanto paga (e como divide) →
  * quanto cobra → vencimento e endereço → mais detalhes. `preset` preenche um novo (ex.: vindo do projeto).
@@ -267,7 +348,10 @@ export async function render({ root, module, signal }) {
         sortValue: (a) => monitors.find((m) => m.assetId === a.id)?.state ?? 'zz',
         render: (a) => {
           const m = monitors.find((x) => x.assetId === a.id);
-          return m ? monitorBadge(m) : muted();
+          if (!m) return muted();
+          return manage && m.enabled
+            ? html`<span class="person">${monitorBadge(m)}<button type="button" class="link-action sched-link" data-action="schedule" data-id="${m.id}" title="Horário de verificação">${scheduleText(m)}</button></span>`
+            : monitorBadge(m);
         },
       },
       ...(manage
@@ -328,6 +412,10 @@ export async function render({ root, module, signal }) {
   };
 
   bindActions(root, {
+    schedule: async (el) => {
+      const m = monitors.find((x) => x.id === el.dataset.id);
+      if (m && (await editSchedule(m).catch((error) => (toastError(error), false)))) load();
+    },
     new: async () => {
       if (await editAsset(null).catch((error) => (toastError(error), false))) {
         toast('Serviço cadastrado.', 'success');

@@ -1157,3 +1157,15 @@ body:has(.assistant) .toasts { right: calc(min(420px, 100vw - 32px) + 32px); }
 .push-table, .push-history { margin-top: var(--s-4); }
 .push-history summary { width: fit-content; cursor: pointer; }
 .push-history[open] summary { margin-bottom: var(--s-3); }
+
+/* Horário do "No ar" */
+.sched-presets { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin: 0; }
+.sched-days { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; border: 0; }
+.sched-days legend { margin-bottom: 6px; }
+.sched-day { position: relative; }
+.sched-day input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+.sched-day span { display: grid; place-items: center; min-width: 48px; height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; font-size: var(--fs-sm); font-weight: 500; color: var(--text-2); }
+.sched-day input:checked + span { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.sched-day input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sched-summary { margin: 0; }
+.sched-link { font-size: var(--fs-xs); }

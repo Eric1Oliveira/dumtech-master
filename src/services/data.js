@@ -133,6 +133,9 @@ import { supabaseBackend } from './supabase.js';
  * @property {number | null} lastCode
  * @property {number} failStreak
  * @property {string | null} downSince
+ * @property {number[]} checkDays     dias em que o servidor verifica (0 = domingo)
+ * @property {string | null} checkFrom  início do horário ("08:00"); nulo = o dia todo
+ * @property {string | null} checkTo
  */
 /** @typedef {{ monitorId: string, checkedAt: string, ok: boolean, code: number | null, msTotal: number | null, msConnect: number | null, cause: string | null, detail: string | null }} MonitorCheck */
 /** @typedef {{ monitorId: string, hour: string, checks: number, ok: number, slow: number, msAvg: number | null, msP95: number | null, msMax: number | null }} MonitorHourly */

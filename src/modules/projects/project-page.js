@@ -23,7 +23,8 @@ import { icon } from '../../shared/components/icons.js';
 import { FILE_MAX_BYTES, formatBytes } from '../../core/workspace.js';
 import { causeText, durationText, uptime, pctText, blocks, msStats, responseSeries } from '../../core/monitor.js';
 import { uptimeStrip, drawLineChart } from '../../shared/components/charts.js';
-import { renewalBadge, editAsset, monitorBadge } from '../infrastructure/index.js';
+import { renewalBadge, editAsset, monitorBadge, editSchedule } from '../infrastructure/index.js';
+import { scheduleText } from '../../core/monitor.js';
 import { linkSubscription, editSubscription, markPaid, undoPayment, monthCell } from '../customers/billing-ui.js';
 import { loadProjects, summarizeProject } from './project-data.js';
 import { editProject } from './project-form.js';
@@ -404,6 +405,7 @@ export async function renderProjectPage({ root, module, signal }, id) {
           <span class="person"><strong>${m.label}</strong><small>${host || 'sem endereço'}</small></span>
           ${monitorBadge(m)}
           ${canWatch ? html`<button type="button" class="btn btn--ghost btn--sm" data-action="toggle-monitor" data-monitor="${m.id}">${m.enabled ? 'Desligar' : 'Ligar'}</button>` : ''}
+          ${canWatch && m.enabled ? html`<button type="button" class="btn btn--ghost btn--sm" data-action="schedule" data-monitor="${m.id}" title="Horário de verificação">${icon('clock')}<span>${scheduleText(m)}</span></button>` : ''}
         </header>
         <dl class="uptime__nums">
           <div><dt>24 horas</dt><dd class="mono">${pctText(uptime(mine, 24, now).pct)}</dd></div>
@@ -445,7 +447,7 @@ export async function renderProjectPage({ root, module, signal }, id) {
             <div><dt>Endereço verificado</dt><dd class="break">${m.target ?? '—'}</dd></div>
             <div><dt>Conta como lento acima de</dt><dd class="mono">${m.slowMs} ms</dd></div>
             <div><dt>Tempo limite</dt><dd class="mono">10 s</dd></div>
-            <div><dt>Quem verifica</dt><dd>Servidor do Supabase, a cada minuto</dd></div>
+            <div><dt>Quem verifica</dt><dd>Servidor do Supabase, a cada minuto (${scheduleText(m)})</dd></div>
           </dl>
         </details>`,
     );
@@ -696,6 +698,10 @@ export async function renderProjectPage({ root, module, signal }, id) {
       } catch (error) {
         toastError(error);
       }
+    },
+    schedule: async (el) => {
+      const m = /** @type {Project} */ (p).monitors.find((x) => x.id === el.dataset.monitor);
+      if (m && (await editSchedule(m).catch((e) => (toastError(e), false)))) done('Horário de verificação salvo.');
     },
     'toggle-monitor': async (el) => {
       const m = /** @type {Project} */ (p).monitors.find((x) => x.id === el.dataset.monitor);
@@ -991,6 +997,7 @@ function monitorsPanel(s) {
             <span class="person"><strong>${m.label}</strong><small>${m.target ? host(m.target) : 'sem endereço'}${m.lastCheckAt ? ` · ${formatRelative(m.lastCheckAt)}` : ''}</small></span>
             ${monitorBadge(m)}
             ${canWatch ? html`<button type="button" class="btn btn--ghost btn--sm" data-action="toggle-monitor" data-monitor="${m.id}">${m.enabled ? 'Desligar' : 'Ligar'}</button>` : ''}
+          ${canWatch && m.enabled ? html`<button type="button" class="btn btn--ghost btn--sm" data-action="schedule" data-monitor="${m.id}" title="Horário de verificação">${icon('clock')}<span>${scheduleText(m)}</span></button>` : ''}
           </li>`,
         )}</ul>`
       : html`<p class="muted detail-text">${pr.status === 'live' ? 'Nada sendo verificado.' : 'O monitoramento liga quando o projeto for publicado.'}</p>`}

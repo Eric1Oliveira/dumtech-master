@@ -238,9 +238,11 @@ import { supabaseBackend } from './supabase.js';
  * @typedef {Object} PageMeta
  * @property {string} id
  * @property {string | null} parentId
- * @property {'page' | 'meeting'} kind
+ * @property {'page' | 'meeting' | 'project'} kind
  * @property {string} title
- * @property {string} icon
+ * @property {string} icon          nome do ícone de linha (icons.js); vazio = padrão do tipo
+ * @property {string} iconColor     '', gray, blue, green, yellow, orange, red, purple, pink
+ * @property {Record<string, any>} props   projeto: status, ownerId, startDate, dueDate · documento: docType
  * @property {string | null} productId
  * @property {string | null} customerId
  * @property {number} position
@@ -261,9 +263,11 @@ import { supabaseBackend } from './supabase.js';
 /**
  * @typedef {Object} PageInput
  * @property {string | null} [parentId]
- * @property {'page' | 'meeting'} [kind]
+ * @property {'page' | 'meeting' | 'project'} [kind]
  * @property {string} [title]
  * @property {string} [icon]
+ * @property {string} [iconColor]
+ * @property {Record<string, any>} [props]
  * @property {import('../core/blocks.js').Block[]} [content]
  * @property {Meeting | null} [meeting]
  * @property {string} [searchText]

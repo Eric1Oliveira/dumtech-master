@@ -1,6 +1,7 @@
-// Caderno (#/workspace) — o "Notion" da DUMTech: páginas em árvore com editor de blocos, reuniões com
-// transcrição e ata feitas no navegador (IA local), tarefas de verdade, favoritos, lixeira, histórico e
-// arquivos. Rotas: #/workspace · #/workspace/<id> · #/workspace/arquivos · #/workspace/lixeira
+// Caderno (#/workspace) — o "Notion" da DUMTech: Projetos, Tarefas, Reuniões e Documentos, páginas em
+// árvore com editor de blocos, reuniões com transcrição e ata no navegador (IA local), tarefas de verdade,
+// favoritos, lixeira, histórico e arquivos. Ícones de linha com cor, nada de emoji.
+// Rotas: #/workspace · /projetos · /tarefas · /reunioes · /documentos · /<id> · /arquivos · /lixeira
 
 import { html, setHtml, $, bindActions, createElement } from '../../shared/utils/dom.js';
 import { formatRelative, formatDateTime, formatDate, normalize } from '../../shared/utils/format.js';
@@ -20,6 +21,8 @@ import { createEditor } from './editor.js';
 import { mountMeeting } from './meeting.js';
 import { newPage } from './new-page.js';
 import { AI_LEVELS, aiLevel, setAiLevel, gpu, clearModels, storageUsed } from './ai.js';
+import { renderProjects, renderTasks, renderMeetings, renderDocs, pageIconHtml } from './views.js';
+import { PAGE_ICONS, ICON_COLORS, COLOR_LABEL, PROJECT_STATUS, DOC_TYPES, normalizeProps, pageIconName, progressOf } from '../../core/notebook.js';
 
 /** @typedef {import('../../modules/index.js').ModuleContext} Ctx */
 /** @typedef {import('../../services/data.js').PageMeta} PageMeta */
@@ -29,10 +32,16 @@ import { AI_LEVELS, aiLevel, setAiLevel, gpu, clearModels, storageUsed } from '.
 
 const EXPANDED_KEY = 'dum.caderno.expanded';
 const FAV_KEY = 'caderno.favorites';
-const PAGE_ICONS = ['📄', '📝', '📌', '📋', '✅', '🎯', '🚀', '💡', '📅', '🎙️', '🧭', '🤝', '💰', '🛠️', '🎨', '📦', '🌐', '🔒', '📈', '⭐', '🧪', '📚', '🗂️', '🧾', '🏢', '👥', '⚙️', '🔥'];
 const LOCK_MS = 70_000;
+/** Seções do Caderno (como o menu lateral do Notion). */
+const SECTIONS = /** @type {const} */ ([
+  { key: 'projetos', label: 'Projetos', icon: 'folder' },
+  { key: 'tarefas', label: 'Tarefas', icon: 'listChecks' },
+  { key: 'reunioes', label: 'Reuniões', icon: 'mic' },
+  { key: 'documentos', label: 'Documentos', icon: 'book' },
+]);
 
-const pageIcon = (/** @type {{ icon: string, kind: string }} */ p) => p.icon || (p.kind === 'meeting' ? '🎙️' : '📄');
+const pageIcon = (/** @type {{ icon?: string, kind?: string, iconColor?: string }} */ p) => pageIconHtml(p);
 const pageTitle = (/** @type {{ title: string, kind?: string }} */ p) => p.title.trim() || 'Sem título';
 const readExpanded = () => {
   try {
@@ -48,7 +57,7 @@ export async function render(ctx) {
   const { org, user } = getState();
   const manage = canDo('workspace.manage');
   const section = route.section ?? '';
-  const view = section === 'arquivos' ? 'files' : section === 'lixeira' ? 'trash' : section ? 'page' : 'home';
+  const view = section === 'arquivos' ? 'files' : section === 'lixeira' ? 'trash' : SECTIONS.some((s) => s.key === section) ? section : section ? 'page' : 'home';
 
   setHtml(
     root,
@@ -60,13 +69,13 @@ export async function render(ctx) {
           ${manage
             ? html`<div class="cad-nav__new">
                 <button type="button" class="btn btn--secondary btn--sm" data-action="new-page">${icon('plus')}<span>Página</span></button>
-                <button type="button" class="btn btn--secondary btn--sm" data-action="new-meeting">${icon('message')}<span>Reunião</span></button>
+                <button type="button" class="btn btn--secondary btn--sm" data-action="new-meeting">${icon('mic')}<span>Reunião</span></button>
               </div>`
             : ''}
         </div>
         <nav class="cad-tree" data-tree><div class="skeleton"></div></nav>
         <div class="cad-nav__foot">
-          <a class="cad-link ${view === 'files' ? 'is-active' : ''}" href="#/workspace/arquivos">${icon('package')}<span>Arquivos</span></a>
+          <a class="cad-link ${view === 'files' ? 'is-active' : ''}" href="#/workspace/arquivos">${icon('paperclip')}<span>Arquivos</span></a>
           <a class="cad-link ${view === 'trash' ? 'is-active' : ''}" href="#/workspace/lixeira">${icon('trash')}<span>Lixeira</span><small data-trash-count></small></a>
           <button type="button" class="cad-link" data-action="ai-settings">${icon('zap')}<span>IA local</span><small>${AI_LEVELS.find((l) => l.key === aiLevel())?.label ?? ''}</small></button>
         </div>
@@ -83,7 +92,7 @@ export async function render(ctx) {
   let tasks = [];
   /** @type {{ userId: string, name: string, email: string }[]} */
   let members = [];
-  /** @type {{ id: string, name: string }[]} */
+  /** @type {import('../../services/data.js').Product[]} */
   let products = [];
   /** @type {{ id: string, name: string }[]} */
   let customers = [];
@@ -97,7 +106,7 @@ export async function render(ctx) {
       data.pages.list(org.id),
       canDo('projects.view') ? data.tasks.list(org.id).catch(() => []) : Promise.resolve([]),
       data.members.list(org.id).then((list) => list.map((m) => ({ userId: m.userId, name: m.name || m.email, email: m.email }))).catch(() => []),
-      canDo('products.view') ? data.products.list(org.id).then((l) => l.map((p) => ({ id: p.id, name: p.name }))).catch(() => []) : Promise.resolve([]),
+      canDo('products.view') ? data.products.list(org.id).catch(() => []) : Promise.resolve([]),
       canDo('customers.view') ? data.customers.list(org.id).then((l) => l.map((c) => ({ id: c.id, name: c.name }))).catch(() => []) : Promise.resolve([]),
       data.prefs.get(org.id, FAV_KEY).then((v) => (Array.isArray(v) ? v : [])).catch(() => []),
     ]);
@@ -136,7 +145,7 @@ export async function render(ctx) {
         ${kids.length
           ? html`<button type="button" class="cad-caret ${open ? 'is-open' : ''}" data-action="expand" data-id="${p.id}" aria-expanded="${open}" aria-label="${open ? 'Fechar' : 'Abrir'} ${pageTitle(p)}"></button>`
           : html`<span class="cad-caret cad-caret--none" aria-hidden="true"></span>`}
-        <a class="cad-item__link" href="#/workspace/${p.id}" ${p.id === currentId ? html`aria-current="page"` : ''}><span class="cad-item__icon" aria-hidden="true">${pageIcon(p)}</span><span class="cad-item__title">${pageTitle(p)}</span></a>
+        <a class="cad-item__link" href="#/workspace/${p.id}" ${p.id === currentId ? html`aria-current="page"` : ''}>${pageIcon(p)}<span class="cad-item__title">${pageTitle(p)}</span></a>
         ${manage ? html`<button type="button" class="cad-item__add" data-action="new-child" data-id="${p.id}" aria-label="Nova página dentro de ${pageTitle(p)}" title="Nova página dentro">+</button>` : ''}
       </div>
       ${open ? kids.map((k) => item(k, depth + 1)) : ''}`;
@@ -145,16 +154,17 @@ export async function render(ctx) {
   function drawTree() {
     const roots = childrenOf(null);
     const docs = roots.filter((p) => p.kind === 'page');
-    const meetings = alive().filter((p) => p.kind === 'meeting' && !p.parentId).sort((a, b) => (b.meetingDate ?? b.createdAt).localeCompare(a.meetingDate ?? a.createdAt));
+    const projects = roots.filter((p) => p.kind === 'project');
     const favs = favorites.map((id) => byId.get(id)).filter((p) => p && !p.archivedAt);
+    const open = tasks.filter((t) => t.status !== 'done' && t.assigneeId === user?.id).length;
     setHtml(
       tree,
       html`<a class="cad-link ${view === 'home' ? 'is-active' : ''}" href="#/workspace">${icon('home')}<span>Início</span></a>
+        ${SECTIONS.map((s) => html`<a class="cad-link ${view === s.key ? 'is-active' : ''}" href="#/workspace/${s.key}">${icon(s.icon)}<span>${s.label}</span>${s.key === 'tarefas' && open ? html`<small>${open}</small>` : ''}</a>`)}
         ${favs.length ? html`<p class="cad-group">Favoritos</p>${favs.map((p) => item(/** @type {PageMeta} */ (p), 0))}` : ''}
+        ${projects.length ? html`<p class="cad-group">Projetos internos</p>${projects.map((p) => item(p, 0))}` : ''}
         <p class="cad-group">Páginas</p>
-        ${docs.length ? docs.map((p) => item(p, 0)) : html`<p class="cad-none">Nenhuma página ainda</p>`}
-        <p class="cad-group">Reuniões</p>
-        ${meetings.length ? meetings.slice(0, 40).map((p) => item(p, 0)) : html`<p class="cad-none">Nenhuma reunião ainda</p>`}`,
+        ${docs.length ? docs.map((p) => item(p, 0)) : html`<p class="cad-none">Nenhuma página ainda</p>`}`,
     );
     const trash = pages.filter((p) => p.archivedAt).length;
     const count = $('[data-trash-count]', root);
@@ -178,7 +188,7 @@ export async function render(ctx) {
         tree,
         html`<p class="cad-group">Resultados para “${q}”</p>
           ${found.length
-            ? found.map((p) => html`<div class="cad-item" data-depth="0"><span class="cad-caret cad-caret--none"></span><a class="cad-item__link" href="#/workspace/${/** @type {PageMeta} */ (p).id}"><span class="cad-item__icon">${pageIcon(/** @type {PageMeta} */ (p))}</span><span class="cad-item__title">${pageTitle(/** @type {PageMeta} */ (p))}</span></a></div>`)
+            ? found.map((p) => html`<div class="cad-item" data-depth="0"><span class="cad-caret cad-caret--none"></span><a class="cad-item__link" href="#/workspace/${/** @type {PageMeta} */ (p).id}">${pageIcon(/** @type {PageMeta} */ (p))}<span class="cad-item__title">${pageTitle(/** @type {PageMeta} */ (p))}</span></a></div>`)
             : html`<p class="cad-none">Nada encontrado</p>`}`,
       );
     }, 250);
@@ -232,46 +242,46 @@ export async function render(ctx) {
   function drawHome() {
     const recent = alive().slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 8);
     const meetings = alive().filter((p) => p.kind === 'meeting').sort((a, b) => (b.meetingDate ?? b.createdAt).localeCompare(a.meetingDate ?? a.createdAt)).slice(0, 5);
-    const mine = tasks.filter((t) => t.pageId && t.status !== 'done' && t.assigneeId === user?.id).sort((a, b) => (a.dueDate ?? '9999').localeCompare(b.dueDate ?? '9999'));
+    const mine = tasks.filter((t) => t.status !== 'done' && t.assigneeId === user?.id).sort((a, b) => (a.dueDate ?? '9999').localeCompare(b.dueDate ?? '9999')).slice(0, 12);
     const todayKey = today();
     setHtml(
       main,
       html`<header class="page-head">
-          <div><h1 class="page-title">Caderno</h1><p class="page-sub">Páginas, reuniões e o que ficou combinado em ${org.name}</p></div>
+          <div><h1 class="page-title nt-title">${icon('book')}<span>Caderno</span></h1><p class="page-sub">Projetos, tarefas, reuniões e documentos de ${org.name}</p></div>
           ${manage
             ? html`<div class="page-actions">
-                <button type="button" class="btn btn--secondary" data-action="new-meeting">${icon('message')}<span>Nova reunião</span></button>
+                <button type="button" class="btn btn--secondary" data-action="new-meeting">${icon('mic')}<span>Nova reunião</span></button>
                 <button type="button" class="btn btn--primary" data-action="new-page">${icon('plus')}<span>Nova página</span></button>
               </div>`
             : ''}
         </header>
         ${manage
           ? html`<section class="cad-templates" aria-label="Começar com um modelo">
-              ${TEMPLATES.map((t) => html`<button type="button" class="cad-tpl" data-action="template" data-id="${t.id}"><span class="cad-tpl__icon" aria-hidden="true">${t.icon}</span><strong>${t.title}</strong><small>${t.hint}</small></button>`)}
+              ${TEMPLATES.map((t) => html`<button type="button" class="cad-tpl" data-action="template" data-id="${t.id}"><span class="cad-tpl__icon" aria-hidden="true">${icon(/** @type {any} */ (t.icon))}</span><strong>${t.title}</strong><small>${t.hint}</small></button>`)}
             </section>`
           : ''}
         <div class="cad-home">
           <section class="panel" aria-labelledby="mine-title">
-            <header class="panel__head"><div><h2 class="panel__title" id="mine-title">Minhas pendências</h2><p class="panel__hint">Tarefas das atas com você como responsável</p></div></header>
+            <header class="panel__head"><div><h2 class="panel__title" id="mine-title">Minhas pendências</h2><p class="panel__hint">Tarefas abertas com você como responsável</p></div><a class="link-action" href="#/workspace/tarefas">Ver todas →</a></header>
             ${mine.length
               ? html`<ul class="cad-tasks">${mine.map((t) => html`<li class="cad-task">
                   <button type="button" class="ed-check" data-action="task-done" data-id="${t.id}" aria-label="Concluir ${t.title}"></button>
-                  <a href="#/workspace/${t.pageId}"><strong>${t.title}</strong><small>${t.pageTitle || 'Página'}${t.projectName ? ` · ${t.projectName}` : ''}</small></a>
+                  <a href="${t.pageId ? `#/workspace/${t.pageId}` : t.productId ? `#/projects/${t.productId}` : '#/workspace/tarefas'}"><strong>${t.title}</strong><small>${[t.pageTitle, t.projectName].filter(Boolean).join(' · ') || 'Tarefa'}</small></a>
                   ${t.dueDate ? html`<span class="cad-due ${t.dueDate < todayKey ? 'is-late' : t.dueDate === todayKey ? 'is-today' : ''}">${t.dueDate === todayKey ? 'hoje' : formatDate(t.dueDate)}</span>` : ''}
                 </li>`)}</ul>`
-              : emptyState({ title: 'Nada pendente com você', text: 'Quando uma ata der uma tarefa para você, ela aparece aqui e no Hoje.', compact: true })}
+              : emptyState({ title: 'Nada pendente com você', text: 'Tarefas com você como responsável aparecem aqui e no Hoje.', compact: true })}
           </section>
           <section class="panel" aria-labelledby="recent-title">
             <header class="panel__head"><h2 class="panel__title" id="recent-title">Editadas por último</h2></header>
             ${recent.length
-              ? html`<ul class="nb-list">${recent.map((p) => html`<li><a class="nb-list__link" href="#/workspace/${p.id}"><span class="nb-list__icon" aria-hidden="true">${pageIcon(p)}</span><span class="nb-list__title">${pageTitle(p)}</span><small title="${formatDateTime(p.updatedAt)}">${formatRelative(p.updatedAt)}${p.editorName ? ` · ${p.editorName}` : ''}</small></a></li>`)}</ul>`
+              ? html`<ul class="nb-list">${recent.map((p) => html`<li><a class="nb-list__link" href="#/workspace/${p.id}">${pageIcon(p)}<span class="nb-list__title">${pageTitle(p)}</span><small title="${formatDateTime(p.updatedAt)}">${formatRelative(p.updatedAt)}${p.editorName ? ` · ${p.editorName}` : ''}</small></a></li>`)}</ul>`
               : emptyState({ title: 'Caderno vazio', text: manage ? 'Comece com um modelo acima ou crie uma página.' : 'Quando a equipe criar páginas, elas aparecem aqui.', compact: true })}
           </section>
         </div>
         ${meetings.length
           ? html`<section class="panel" aria-labelledby="meet-title">
               <header class="panel__head"><h2 class="panel__title" id="meet-title">Reuniões recentes</h2></header>
-              <ul class="nb-list">${meetings.map((p) => html`<li><a class="nb-list__link" href="#/workspace/${p.id}"><span class="nb-list__icon" aria-hidden="true">${pageIcon(p)}</span><span class="nb-list__title">${pageTitle(p)}</span><small>${p.meetingDate ? formatDate(p.meetingDate) : formatRelative(p.createdAt)}</small></a></li>`)}</ul>
+              <ul class="nb-list">${meetings.map((p) => html`<li><a class="nb-list__link" href="#/workspace/${p.id}">${pageIcon(p)}<span class="nb-list__title">${pageTitle(p)}</span><small>${p.meetingDate ? formatDate(p.meetingDate) : formatRelative(p.createdAt)}</small></a></li>`)}</ul>
             </section>`
           : ''}`,
     );
@@ -284,7 +294,7 @@ export async function render(ctx) {
       main,
       html`<header class="page-head"><div><h1 class="page-title">Lixeira</h1><p class="page-sub">Páginas tiradas do Caderno. Restaure ou apague de vez.</p></div></header>
         <section class="panel">${archived.length
-          ? html`<ul class="nb-list">${archived.map((p) => html`<li class="nb-list__row"><span class="nb-list__icon" aria-hidden="true">${pageIcon(p)}</span><span class="nb-list__title">${pageTitle(p)}</span><small>na lixeira ${formatRelative(String(p.archivedAt))}</small>
+          ? html`<ul class="nb-list">${archived.map((p) => html`<li class="nb-list__row">${pageIcon(p)}<span class="nb-list__title">${pageTitle(p)}</span><small>na lixeira ${formatRelative(String(p.archivedAt))}</small>
               ${manage ? html`<span class="row-actions"><button type="button" class="btn btn--ghost btn--sm" data-trash="restore" data-id="${p.id}">Restaurar</button><button type="button" class="btn btn--ghost btn--sm" data-trash="delete" data-id="${p.id}">Apagar de vez</button></span>` : ''}</li>`)}</ul>`
           : emptyState({ title: 'Lixeira vazia', compact: true })}</section>`,
     );
@@ -425,9 +435,19 @@ export async function render(ctx) {
     }
   }, { signal });
 
+  /** Contexto das telas Projetos/Tarefas/Reuniões/Documentos. @type {import('./views.js').ViewCtx} */
+  const viewCtx = {
+    org, user, manage, canTasks: manage && canDo('projects.manage'), pages, byId, tasks, members, products, signal,
+    create: (/** @type {any} */ options) => create(options),
+    refreshNav: () => drawTree(),
+  };
   if (view === 'home') return drawHome();
   if (view === 'trash') return drawTrash();
   if (view === 'files') return drawFiles();
+  if (view === 'projetos') return renderProjects(main, viewCtx);
+  if (view === 'tarefas') return renderTasks(main, viewCtx);
+  if (view === 'reunioes') return renderMeetings(main, viewCtx);
+  if (view === 'documentos') return renderDocs(main, viewCtx, TEMPLATES);
   return renderPage();
 
   // Página ------------------------------------------------------------------------------------
@@ -459,31 +479,36 @@ export async function render(ctx) {
     let meeting = p.meeting;
     let title = p.title;
     let iconValue = p.icon;
+    let iconColor = p.iconColor ?? '';
+    /** @type {Record<string, any>} */
+    let props = { ...(p.props ?? {}) };
     const taskMap = new Map(tasks.filter((t) => t.pageId === p.id).map((t) => [t.id, t]));
     const crumbs = ancestors(p.id);
     const isFav = () => favorites.includes(p.id);
 
     setHtml(
       main,
-      html`<article class="pg ${p.kind === 'meeting' ? 'pg--meeting' : ''}">
+      html`<article class="pg pg--${p.kind}">
         <div class="pg-bar">
-          <nav class="pg-crumbs" aria-label="Caminho"><a href="#/workspace">Caderno</a>${crumbs.map((c) => html`<span aria-hidden="true">/</span><a href="#/workspace/${c.id}">${pageIcon(c)} ${pageTitle(c)}</a>`)}</nav>
+          <nav class="pg-crumbs" aria-label="Caminho"><a href="#/workspace">Caderno</a>${crumbs.map((c) => html`<span aria-hidden="true">/</span><a href="#/workspace/${c.id}">${pageIcon(c)}<span>${pageTitle(c)}</span></a>`)}</nav>
           <div class="pg-bar__tools">
             <span class="pg-status" data-status role="status">${readOnly ? (p.archivedAt ? 'Na lixeira' : 'Só leitura') : 'Salvo'}</span>
-            <button type="button" class="icon-btn" data-page="fav" aria-pressed="${isFav()}" title="${isFav() ? 'Tirar dos favoritos' : 'Favoritar'}" aria-label="Favoritar">${isFav() ? '★' : '☆'}</button>
+            <button type="button" class="icon-btn pg-fav ${isFav() ? 'is-on' : ''}" data-page="fav" aria-pressed="${isFav()}" title="${isFav() ? 'Tirar dos favoritos' : 'Favoritar'}" aria-label="Favoritar">${icon('star')}</button>
             <button type="button" class="icon-btn" data-page="history" title="Histórico de versões" aria-label="Histórico">${icon('clock')}</button>
-            <button type="button" class="icon-btn" data-page="more" title="Mais opções" aria-label="Mais opções" aria-expanded="false">${icon('menu')}</button>
+            <button type="button" class="icon-btn" data-page="more" title="Mais opções" aria-label="Mais opções" aria-expanded="false">${icon('moreH')}</button>
           </div>
         </div>
         ${p.archivedAt ? html`<p class="notice notice--warn pg-notice">Esta página está na lixeira. ${manage ? html`<button type="button" class="link-action" data-page="restore">Restaurar</button>` : ''}</p>` : ''}
         ${lockedBy ? html`<p class="notice notice--warn pg-notice" data-lock><strong>${lockedBy} está editando agora.</strong> Você vê só para leitura para não sobrescrever. ${manage ? html`<button type="button" class="link-action" data-page="unlock">Editar mesmo assim</button>` : ''}</p>` : ''}
         <header class="pg-head">
-          <button type="button" class="pg-icon ${iconValue ? '' : 'is-empty'}" data-page="icon" ${readOnly ? html`disabled` : ''} aria-label="Escolher ícone">${iconValue || '＋'}</button>
+          <button type="button" class="pg-icon" data-page="icon" ${readOnly ? html`disabled` : ''} aria-label="Escolher ícone e cor" title="Ícone e cor">${pageIcon({ icon: iconValue, kind: p.kind, iconColor })}</button>
           <h1 class="pg-title" data-title contenteditable="${readOnly ? 'false' : 'true'}" spellcheck="true" data-ph="Sem título">${title}</h1>
           <div class="pg-meta" data-meta></div>
+          <dl class="props pg-props" data-props></dl>
         </header>
         <div data-meeting></div>
         <div class="pg-body" data-editor></div>
+        <div data-project-tasks></div>
         <div data-below></div>
       </article>`,
     );
@@ -504,15 +529,58 @@ export async function render(ctx) {
     };
     drawMeta();
 
+    const propsEl = /** @type {HTMLElement} */ ($('[data-props]', main));
+    const dis = readOnly ? html`disabled` : '';
+    const drawProps = () => {
+      if (p.kind === 'project') {
+        const own = tasks.filter((t) => t.pageId && (t.pageId === p.id || ancestors(t.pageId).some((a) => a.id === p.id)));
+        const prog = progressOf(own);
+        setHtml(propsEl, html`<div><dt>${icon('target')}Status</dt><dd><select class="input input--sm" name="status" ${dis}>${PROJECT_STATUS.map((s) => html`<option value="${s.key}" ${props.status === s.key ? html`selected` : ''}>${s.label}</option>`)}</select></dd></div>
+          <div><dt>${icon('user')}Responsável</dt><dd><select class="input input--sm" name="ownerId" ${dis}><option value="">—</option>${members.map((m) => html`<option value="${m.userId}" ${props.ownerId === m.userId ? html`selected` : ''}>${m.name}</option>`)}</select></dd></div>
+          <div><dt>${icon('calendar')}Início</dt><dd><input class="input input--sm" type="date" name="startDate" value="${props.startDate ?? ''}" ${dis}></dd></div>
+          <div><dt>${icon('flag')}Prazo</dt><dd><input class="input input--sm" type="date" name="dueDate" value="${props.dueDate ?? ''}" ${dis}></dd></div>
+          <div><dt>${icon('checkCircle')}Progresso</dt><dd>${prog.total ? html`<span class="nt-progress"><span class="pbar"><span class="pbar__fill" data-pct="${prog.pct}"></span></span><small class="mono">${prog.done} de ${prog.total}</small></span>` : html`<span class="muted">sem tarefas</span>`}</dd></div>`);
+        propsEl.querySelectorAll('.pbar__fill').forEach((el) => (/** @type {HTMLElement} */ (el).style.width = `${/** @type {HTMLElement} */ (el).dataset.pct}%`));
+      } else if (p.kind === 'page') {
+        setHtml(propsEl, html`<div><dt>${icon('bookmark')}Tipo</dt><dd><select class="input input--sm" name="docType" ${dis}>${DOC_TYPES.map((t) => html`<option value="${t.key}" ${(props.docType ?? 'note') === t.key ? html`selected` : ''}>${t.label}</option>`)}</select></dd></div>`);
+      } else propsEl.remove();
+    };
+    drawProps();
+    propsEl.addEventListener('change', async (e) => {
+      const el = /** @type {HTMLInputElement} */ (e.target);
+      if (!el.name) return;
+      try {
+        const next = normalizeProps(p.kind, { ...props, [el.name]: el.value || null });
+        await data.pages.save(org.id, p.id, { props: next });
+        props = next;
+        const meta_ = byId.get(p.id);
+        if (meta_) meta_.props = next;
+        setStatus('Salvo');
+      } catch (error) {
+        toastError(error);
+        drawProps();
+      }
+    }, { signal });
+
+    // Projeto interno: as tarefas dele (tabela) e o que fica dentro (reuniões e documentos)
+    if (p.kind === 'project') {
+      const slot = /** @type {HTMLElement} */ ($('[data-project-tasks]', main));
+      setHtml(slot, html`<section class="pg-section"><header class="pg-section__head"><h2 class="pg-section__title">${icon('listChecks')}Tarefas do projeto</h2></header><div data-scoped></div></section>`);
+      renderTasks(/** @type {HTMLElement} */ ($('[data-scoped]', slot)), { org, user, manage, canTasks: manage && canDo('projects.manage'), pages, byId, tasks, members, products, signal, create: (o) => create(o), refreshNav: () => drawTree() }, { projectPageId: p.id });
+    }
+
     const drawBelow = () => {
       const kids = childrenOf(p.id);
       const pageTasks = [...taskMap.values()];
       setHtml(
         below,
         html`${kids.length
-            ? html`<section class="pg-section"><h2 class="pg-section__title">Dentro desta página</h2><ul class="nb-list">${kids.map((k) => html`<li><a class="nb-list__link" href="#/workspace/${k.id}"><span class="nb-list__icon" aria-hidden="true">${pageIcon(k)}</span><span class="nb-list__title">${pageTitle(k)}</span><small>${formatRelative(k.updatedAt)}</small></a></li>`)}</ul></section>`
+            ? html`<section class="pg-section"><h2 class="pg-section__title">${p.kind === 'project' ? 'Reuniões e documentos do projeto' : 'Dentro desta página'}</h2><ul class="nb-list">${kids.map((k) => html`<li><a class="nb-list__link" href="#/workspace/${k.id}">${pageIcon(k)}<span class="nb-list__title">${pageTitle(k)}</span><small>${k.kind === 'meeting' && k.meetingDate ? formatDate(k.meetingDate) : formatRelative(k.updatedAt)}</small></a></li>`)}</ul></section>`
             : ''}
-          ${pageTasks.length
+          ${p.kind === 'project' && manage && !readOnly
+            ? html`<div class="pg-add"><button type="button" class="btn btn--secondary btn--sm" data-page="child-meeting">${icon('mic')}<span>Nova reunião do projeto</span></button><button type="button" class="btn btn--secondary btn--sm" data-page="child-doc">${icon('fileText')}<span>Novo documento do projeto</span></button></div>`
+            : ''}
+          ${pageTasks.length && p.kind !== 'project'
             ? html`<section class="pg-section"><h2 class="pg-section__title">Tarefas desta página</h2><ul class="cad-tasks">${pageTasks.map((t) => html`<li class="cad-task ${t.status === 'done' ? 'is-done' : ''}">
                 <span class="ed-check ${t.status === 'done' ? 'is-on' : ''}" aria-hidden="true"></span>
                 <span><strong>${t.title}</strong><small>${[t.assigneeName || 'sem responsável', t.projectName].filter(Boolean).join(' · ')}</small></span>
@@ -549,10 +617,12 @@ export async function render(ctx) {
       dirty = false;
       setStatus('Salvando…');
       try {
-        const res = await data.pages.save(org.id, p.id, { title, icon: iconValue, content: editor.getBlocks(), meeting, searchText: searchText() }, updatedAt);
+        const res = await data.pages.save(org.id, p.id, { title, icon: iconValue, iconColor, content: editor.getBlocks(), meeting, searchText: searchText() }, updatedAt);
         updatedAt = res.updatedAt;
         const meta_ = byId.get(p.id);
-        if (meta_) Object.assign(meta_, { title, icon: iconValue, updatedAt });
+        const renamed = meta_ && meta_.title !== title;
+        if (meta_) Object.assign(meta_, { title, icon: iconValue, iconColor, updatedAt });
+        if (renamed) drawTree();
         setStatus('Salvo');
         syncTaskTitles();
       } catch (error) {
@@ -628,13 +698,13 @@ export async function render(ctx) {
         },
         pageInfo: (pid) => {
           const x = byId.get(pid);
-          return x ? { title: pageTitle(x), icon: pageIcon(x) } : null;
+          return x ? { title: pageTitle(x), icon: pageIconName(x) } : null;
         },
         newSubpage: async () => {
           try {
             await save(true);
             const id = await newPage(org.id, { templateId: 'blank', parentId: p.id, productId: p.productId });
-            const meta_ = { id, parentId: p.id, kind: /** @type {const} */ ('page'), title: '', icon: '', productId: p.productId, customerId: null, position: Date.now() / 1000, archivedAt: null, editingBy: null, editingAt: null, editingName: '', meetingDate: null, editorName: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+            const meta_ = { id, parentId: p.id, kind: /** @type {const} */ ('page'), title: '', icon: '', iconColor: '', props: { docType: 'note' }, productId: p.productId, customerId: null, position: Date.now() / 1000, archivedAt: null, editingBy: null, editingAt: null, editingName: '', meetingDate: null, editorName: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
             pages.push(meta_);
             byId.set(id, meta_);
             expanded.add(p.id);
@@ -790,7 +860,7 @@ export async function render(ctx) {
         if (action === 'fav') {
           favorites = isFav() ? favorites.filter((x) => x !== p.id) : [...favorites, p.id];
           await data.prefs.set(org.id, FAV_KEY, favorites);
-          btn.textContent = isFav() ? '★' : '☆';
+          btn.classList.toggle('is-on', isFav());
           btn.setAttribute('aria-pressed', String(isFav()));
           drawTree();
         }
@@ -810,6 +880,8 @@ export async function render(ctx) {
           location.reload();
         }
         if (action === 'icon') pickIcon(btn);
+        if (action === 'child-meeting') await create({ templateId: 'meeting', parentId: p.id, productId: p.productId });
+        if (action === 'child-doc') await create({ templateId: 'blank', parentId: p.id, productId: p.productId });
         if (action === 'history') history();
         if (action === 'more') more(btn);
       } catch (error) {
@@ -819,19 +891,32 @@ export async function render(ctx) {
 
     /** @param {HTMLElement} anchor */
     function pickIcon(anchor) {
-      const panel = createElement(html`<div class="cad-icons" role="menu">${PAGE_ICONS.map((ic) => html`<button type="button" data-icon="${ic}" role="menuitem">${ic}</button>`)}<button type="button" class="cad-icons__none" data-icon="">Sem ícone</button></div>`);
+      const panel = createElement(html`<div class="cad-icons" role="menu" aria-label="Ícone e cor">
+        <div class="cad-icons__colors">${ICON_COLORS.map((c) => html`<button type="button" class="cad-color pi--${c || 'default'} ${c === iconColor ? 'is-on' : ''}" data-color="${c}" title="${COLOR_LABEL[c]}" aria-label="Cor ${COLOR_LABEL[c]}"></button>`)}</div>
+        <div class="cad-icons__grid">${PAGE_ICONS.map((ic) => html`<button type="button" class="pi--${iconColor || 'default'} ${ic === pageIconName({ icon: iconValue, kind: p.kind }) ? 'is-on' : ''}" data-icon="${ic}" role="menuitem" aria-label="${ic}">${icon(/** @type {any} */ (ic))}</button>`)}</div>
+      </div>`);
       const close = togglePopover(anchor, panel);
-      panel.addEventListener('click', (e) => {
-        const b = /** @type {HTMLElement | null} */ (/** @type {HTMLElement} */ (e.target).closest('[data-icon]'));
-        if (!b) return;
-        iconValue = b.dataset.icon ?? '';
-        anchor.textContent = iconValue || '＋';
-        anchor.classList.toggle('is-empty', !iconValue);
-        close?.();
+      const apply = () => {
+        setHtml(anchor, pageIcon({ icon: iconValue, kind: p.kind, iconColor }));
         schedule();
         const meta_ = byId.get(p.id);
-        if (meta_) meta_.icon = iconValue;
+        if (meta_) Object.assign(meta_, { icon: iconValue, iconColor });
         drawTree();
+      };
+      panel.addEventListener('click', (e) => {
+        const target = /** @type {HTMLElement} */ (e.target);
+        const color = /** @type {HTMLElement | null} */ (target.closest('[data-color]'));
+        if (color) {
+          iconColor = color.dataset.color ?? '';
+          panel.querySelectorAll('[data-color]').forEach((b) => b.classList.toggle('is-on', b === color));
+          panel.querySelectorAll('[data-icon]').forEach((b) => (b.className = `pi--${iconColor || 'default'} ${b.classList.contains('is-on') ? 'is-on' : ''}`));
+          return apply();
+        }
+        const b = /** @type {HTMLElement | null} */ (target.closest('[data-icon]'));
+        if (!b) return;
+        iconValue = b.dataset.icon ?? '';
+        close?.();
+        apply();
       });
     }
 
@@ -873,7 +958,7 @@ export async function render(ctx) {
       }
       if (action === 'duplicate') {
         await save(true);
-        const { id } = await data.pages.create(org.id, { kind: p.kind, parentId: p.parentId, title: `${pageTitle({ title })} (cópia)`, icon: iconValue, content: editor.getBlocks().map((b) => ({ ...b, taskId: undefined })), meeting: p.kind === 'meeting' ? meeting : null, productId: p.productId, customerId: p.customerId, position: p.position + 0.001, searchText: searchText() });
+        const { id } = await data.pages.create(org.id, { kind: p.kind, parentId: p.parentId, title: `${pageTitle({ title })} (cópia)`, icon: iconValue, iconColor, props, content: editor.getBlocks().map((b) => ({ ...b, taskId: undefined })), meeting: p.kind === 'meeting' ? meeting : null, productId: p.productId, customerId: p.customerId, position: p.position + 0.001, searchText: searchText() });
         toast('Página duplicada.', 'success');
         location.hash = `#/workspace/${id}`;
       }
@@ -891,7 +976,7 @@ export async function render(ctx) {
         await openDialog({
           title: 'Mover para…',
           body: html`<label class="field"><span class="field__label">Dentro de</span><select class="input" name="parent"><option value="">Raiz do Caderno</option>
-            ${options.map((x) => html`<option value="${x.id}" ${x.id === p.parentId ? html`selected` : ''}>${pageIcon(x)} ${pageTitle(x)}</option>`)}</select></label>`,
+            ${options.map((x) => html`<option value="${x.id}" ${x.id === p.parentId ? html`selected` : ''}>${x.kind === 'project' ? 'Projeto: ' : ''}${pageTitle(x)}</option>`)}</select></label>`,
           submitLabel: 'Mover',
           onSubmit: async (form) => {
             const parentId = String(form.get('parent') ?? '') || null;

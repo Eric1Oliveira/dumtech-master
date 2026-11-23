@@ -12,6 +12,7 @@ import { normalizeTask } from '../core/projects.js';
 import { normalizeAsset, normalizeMonitor } from '../core/infra.js';
 import { normalizeDocument, safeFileName, FILE_MAX_BYTES } from '../core/workspace.js';
 import { normalizeBlocks } from '../core/blocks.js';
+import { ICON_COLORS } from '../core/notebook.js';
 
 /** @typedef {import('@supabase/supabase-js').SupabaseClient} SupabaseClient */
 
@@ -201,9 +202,11 @@ function pageRow(input) {
   /** @type {Record<string, any>} */
   const row = {};
   if ('parentId' in input) row.parent_id = input.parentId ?? null;
-  if ('kind' in input) row.kind = input.kind === 'meeting' ? 'meeting' : 'page';
+  if ('kind' in input) row.kind = input.kind === 'meeting' || input.kind === 'project' ? input.kind : 'page';
   if ('title' in input) row.title = String(input.title ?? '').slice(0, 200);
   if ('icon' in input) row.icon = String(input.icon ?? '').slice(0, 16);
+  if ('iconColor' in input) row.icon_color = ICON_COLORS.includes(/** @type {any} */ (input.iconColor)) ? input.iconColor : '';
+  if ('props' in input) row.props = input.props && typeof input.props === 'object' ? input.props : {};
   if ('content' in input) row.content = normalizeBlocks(input.content);
   if ('meeting' in input) row.meeting = input.meeting ?? null;
   if ('searchText' in input) row.search_text = String(input.searchText ?? '').slice(0, 300000);
@@ -828,14 +831,14 @@ export const supabaseBackend = {
     async list(orgId) {
       const sb = await getClient();
       const rows = unwrap(await sb.from('pages')
-        .select('id, parent_id, kind, title, icon, product_id, customer_id, position, archived_at, editing_by, editing_at, created_at, updated_at, meeting_date:meeting->>date, editor:profiles!pages_updated_by_fkey(full_name, email), locker:profiles!pages_editing_by_fkey(full_name, email)')
+        .select('id, parent_id, kind, title, icon, icon_color, props, product_id, customer_id, position, archived_at, editing_by, editing_at, created_at, updated_at, meeting_date:meeting->>date, editor:profiles!pages_updated_by_fkey(full_name, email), locker:profiles!pages_editing_by_fkey(full_name, email)')
         .eq('org_id', orgId).order('position'));
       return /** @type {any[]} */ (rows).map(({ editor, locker, ...r }) => ({ ...fromRow(r), meetingDate: r.meeting_date ?? null, editorName: personName(editor), editingName: personName(locker) }));
     },
     async get(orgId, id) {
       const sb = await getClient();
       const row = unwrap(await sb.from('pages')
-        .select('id, parent_id, kind, title, icon, content, meeting, product_id, customer_id, position, archived_at, editing_by, editing_at, created_at, updated_at, editor:profiles!pages_updated_by_fkey(full_name, email), locker:profiles!pages_editing_by_fkey(full_name, email)')
+        .select('id, parent_id, kind, title, icon, icon_color, props, content, meeting, product_id, customer_id, position, archived_at, editing_by, editing_at, created_at, updated_at, editor:profiles!pages_updated_by_fkey(full_name, email), locker:profiles!pages_editing_by_fkey(full_name, email)')
         .eq('org_id', orgId).eq('id', id).maybeSingle());
       if (!row) return null;
       const { editor, locker, ...r } = /** @type {any} */ (row);

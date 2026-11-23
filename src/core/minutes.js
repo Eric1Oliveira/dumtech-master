@@ -387,7 +387,7 @@ export function minutesToBlocks(minutes, { participants, engine }) {
   const blocks = [
     makeBlock('callout', plainRuns(engine === 'ai'
       ? 'Ata montada pela IA local a partir da transcrição. Revise antes de mandar para alguém.'
-      : 'Ata montada por regras a partir da transcrição. Revise e complete o que faltar.'), { emoji: '🤖' }),
+      : 'Ata montada por regras a partir da transcrição. Revise e complete o que faltar.'), { tone: 'info' }),
   ];
   if (participants.length) blocks.push(makeBlock('p', [{ t: 'Participantes: ', b: 1 }, { t: participants.join(', ') }]));
   blocks.push(makeBlock('h2', plainRuns('Resumo')));

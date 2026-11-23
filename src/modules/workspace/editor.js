@@ -4,8 +4,10 @@
 // arrastar, desfazer) muda o modelo e redesenha. Texto rico nunca vira HTML salvo.
 
 import { escapeHtml } from '../../shared/utils/dom.js';
+import { icon } from '../../shared/components/icons.js';
+import { pageIconName } from '../../core/notebook.js';
 import {
-  BLOCK_TYPES, TEXT_TYPES, MAX_INDENT, makeBlock, cleanRuns, splitRuns, concatRuns, replaceRange, toggleMark, marksIn,
+  BLOCK_TYPES, CALLOUT_TONES, TEXT_TYPES, MAX_INDENT, makeBlock, cleanRuns, splitRuns, concatRuns, replaceRange, toggleMark, marksIn,
   runsText, runsLength, plainRuns, listNumbers, hiddenIds, blockSpan, textToBlocks, safeHref, normalizeBlocks,
 } from '../../core/blocks.js';
 import { fold } from '../../core/minutes.js';
@@ -39,7 +41,9 @@ const MD = /** @type {[string, import('../../core/blocks.js').BlockType, Partial
   ['###', 'h3'], ['##', 'h2'], ['#', 'h1'], ['-', 'ul'], ['*', 'ul'], ['•', 'ul'], ['1.', 'ol'], ['[]', 'todo'], ['[ ]', 'todo'],
   ['[x]', 'todo', { checked: true }], ['>>', 'toggle'], ['>', 'quote'], ['```', 'code'],
 ]);
-const CALLOUT_EMOJIS = ['💡', '⚠️', '✅', '❗', '📌', '🔥', '🎯', '💬', '🧭', '📅', '💰', '🤖'];
+/** Ícone de linha como texto (o editor monta HTML em string). @param {any} name */
+const svg = (name) => String(icon(name));
+const MENTION_ICON = /** @type {Record<string, string>} */ ({ user: 'user', project: 'folder', customer: 'building', page: 'fileText' });
 
 /** Trechos → HTML seguro (tudo escapado; links passam por safeHref). @param {Run[] | undefined} runs */
 function runsHtml(runs) {
@@ -230,13 +234,16 @@ export function createEditor(host, { blocks: initial, readOnly = false, ctx, onC
       }
     }
     if (b.type === 'toggle') prefix = `<button type="button" class="ed-arrow${b.open ? ' is-open' : ''}" data-ed="toggle" aria-expanded="${Boolean(b.open)}" aria-label="Abrir ou fechar"></button>`;
-    if (b.type === 'callout') prefix = `<button type="button" class="ed-emoji" data-ed="emoji" ${ro ? 'disabled' : ''} aria-label="Trocar ícone">${esc(b.emoji ?? '💡')}</button>`;
+    if (b.type === 'callout') {
+      const tone = CALLOUT_TONES.find((t) => t.key === b.tone) ?? CALLOUT_TONES[0];
+      prefix = `<button type="button" class="ed-tone" data-ed="tone" ${ro ? 'disabled' : ''} aria-label="Tipo do destaque: ${tone.label}" title="${tone.label}">${svg(tone.icon)}</button>`;
+    }
     if (b.type === 'divider') body = `<hr class="ed-hr">`;
     if (b.type === 'image' && b.file) body = `<figure class="ed-img"><img alt="${esc(b.file.name)}" data-path="${esc(b.file.path)}"><figcaption>${esc(b.file.name)}</figcaption></figure>`;
-    if (b.type === 'file' && b.file) body = `<button type="button" class="ed-file" data-ed="open-file"><span aria-hidden="true">📎</span><span>${esc(b.file.name)}</span><small>${formatBytes(b.file.size)}</small></button>`;
+    if (b.type === 'file' && b.file) body = `<button type="button" class="ed-file" data-ed="open-file">${svg('paperclip')}<span>${esc(b.file.name)}</span><small>${formatBytes(b.file.size)}</small></button>`;
     if (b.type === 'page' && b.pageId) {
       const info = ctx.pageInfo(b.pageId);
-      body = `<a class="ed-page" href="#/workspace/${esc(b.pageId)}"><span aria-hidden="true">${esc(info?.icon || '📄')}</span><span>${esc(info ? info.title || 'Sem título' : 'Página removida')}</span></a>`;
+      body = `<a class="ed-page" href="#/workspace/${esc(b.pageId)}">${svg(pageIconName({ icon: info?.icon, kind: 'page' }))}<span>${esc(info ? info.title || 'Sem título' : 'Página removida')}</span></a>`;
     }
     if (b.type === 'table') {
       const rows = b.rows ?? [['']];
@@ -244,7 +251,7 @@ export function createEditor(host, { blocks: initial, readOnly = false, ctx, onC
         .map((row, r) => `<tr>${row.map((cell, c) => `<td contenteditable="${editable}" data-r="${r}" data-c="${c}">${esc(cell)}</td>`).join('')}</tr>`)
         .join('')}</tbody></table>${ro ? '' : `<div class="ed-table-tools" contenteditable="false"><button type="button" data-ed="row-add">+ linha</button><button type="button" data-ed="col-add">+ coluna</button>${rows.length > 1 ? '<button type="button" data-ed="row-del">− linha</button>' : ''}${rows[0].length > 1 ? '<button type="button" data-ed="col-del">− coluna</button>' : ''}</div>`}</div>`;
     }
-    return `<div class="ed-b ed-b--${b.type}" data-id="${b.id}" data-indent="${indent}"${hidden.has(b.id) ? ' hidden' : ''}>${gutter}${prefix}<div class="ed-main">${body}</div>${suffix}</div>`;
+    return `<div class="ed-b ed-b--${b.type}" data-id="${b.id}" data-indent="${indent}"${b.type === 'callout' ? ` data-tone="${esc(b.tone ?? 'note')}"` : ''}${hidden.has(b.id) ? ' hidden' : ''}>${gutter}${prefix}<div class="ed-main">${body}</div>${suffix}</div>`;
   }
 
   function render() {
@@ -343,8 +350,9 @@ export function createEditor(host, { blocks: initial, readOnly = false, ctx, onC
     m.el.innerHTML = m.items
       .map((it, i) => {
         if (it.sep) return `<p class="ed-menu__sep">${esc(it.sep)}</p>`;
-        const icon = it.icon ? `<span class="ed-menu__icon" aria-hidden="true">${esc(it.icon)}</span>` : '';
-        return `<button type="button" class="ed-menu__item${i === m.index ? ' is-active' : ''}" data-i="${i}" role="option" aria-selected="${i === m.index}">${icon}<span class="ed-menu__text"><strong>${esc(it.label)}</strong>${it.sub ? `<small>${esc(it.sub)}</small>` : ''}</span></button>`;
+        const mark = it.glyph ? esc(it.glyph) : it.icon ? svg(it.icon) : '';
+        const box = mark ? `<span class="ed-menu__icon" aria-hidden="true">${mark}</span>` : '';
+        return `<button type="button" class="ed-menu__item${i === m.index ? ' is-active' : ''}" data-i="${i}" role="option" aria-selected="${i === m.index}">${box}<span class="ed-menu__text"><strong>${esc(it.label)}</strong>${it.sub ? `<small>${esc(it.sub)}</small>` : ''}</span></button>`;
       })
       .join('');
     m.el.querySelector('.is-active')?.scrollIntoView({ block: 'nearest' });
@@ -382,7 +390,7 @@ export function createEditor(host, { blocks: initial, readOnly = false, ctx, onC
       return;
     }
     if (at && b.type !== 'code') {
-      const items = ctx.mentionItems(at[2]).slice(0, 12).map((it) => ({ ...it, icon: { user: '👤', project: '📦', customer: '🏢', page: '📄' }[it.k] }));
+      const items = ctx.mentionItems(at[2]).slice(0, 12).map((it) => ({ ...it, icon: MENTION_ICON[it.k] }));
       if (menu?.kind === 'mention' && menu.blockId === b.id) {
         menu.items = items;
         menu.query = at[2];
@@ -495,8 +503,8 @@ export function createEditor(host, { blocks: initial, readOnly = false, ctx, onC
     }
     if (type === 'toggle') b.open = true;
     else delete b.open;
-    if (type === 'callout') b.emoji ??= '💡';
-    else delete b.emoji;
+    if (type === 'callout') b.tone ??= 'note';
+    else delete b.tone;
   }
 
   /** Menu de opções do bloco (clique no ⠿). @param {string} id */
@@ -509,20 +517,20 @@ export function createEditor(host, { blocks: initial, readOnly = false, ctx, onC
     if (TEXT_TYPES.has(b.type)) {
       items.push({ sep: 'Transformar em' });
       for (const t of BLOCK_TYPES.filter((x) => TEXT_TYPES.has(x.type) && x.type !== b.type)) {
-        items.push({ label: t.label, icon: t.icon, run: () => structural(() => (convert(b, t.type), { id: b.id })) });
+        items.push({ label: t.label, icon: /** @type {any} */ (t).icon, glyph: /** @type {any} */ (t).glyph, run: () => structural(() => (convert(b, t.type), { id: b.id })) });
       }
     }
     items.push({ sep: 'Bloco' });
-    if (b.type === 'todo' && ctx.canTasks) items.push({ label: b.taskId ? 'Editar responsável e prazo' : 'Virar tarefa com responsável', icon: '👤', run: () => taskFor(b) });
-    items.push({ label: 'Duplicar', icon: '⧉', run: () => structural(() => {
+    if (b.type === 'todo' && ctx.canTasks) items.push({ label: b.taskId ? 'Editar responsável e prazo' : 'Virar tarefa com responsável', icon: 'user', run: () => taskFor(b) });
+    items.push({ label: 'Duplicar', icon: 'copy', run: () => structural(() => {
       const span = blockSpan(blocks, idx);
       const copies = normalizeBlocks(JSON.parse(JSON.stringify(blocks.slice(idx, idx + span)))).map((c) => ({ ...c, id: makeBlock('p').id, taskId: undefined }));
       blocks.splice(idx + span, 0, ...copies);
       return TEXT_TYPES.has(copies[0].type) ? { id: copies[0].id } : undefined;
     }) });
-    if (idx > 0) items.push({ label: 'Mover para cima', icon: '↑', run: () => move(id, -1) });
-    if (idx < blocks.length - 1) items.push({ label: 'Mover para baixo', icon: '↓', run: () => move(id, 1) });
-    items.push({ label: 'Excluir', icon: '🗑', run: () => remove(id) });
+    if (idx > 0) items.push({ label: 'Mover para cima', icon: 'arrowUp', run: () => move(id, -1) });
+    if (idx < blocks.length - 1) items.push({ label: 'Mover para baixo', icon: 'arrowDown', run: () => move(id, 1) });
+    items.push({ label: 'Excluir', icon: 'trash', run: () => remove(id) });
     openMenu('block', items, id, '', blockEl(id)?.querySelector('.ed-grip')?.getBoundingClientRect() ?? null);
     if (menu) menu.index = items.findIndex((x) => !x.sep);
     drawMenu();
@@ -978,10 +986,9 @@ export function createEditor(host, { blocks: initial, readOnly = false, ctx, onC
     if (action === 'menu') return blockMenu(id);
     if (action === 'task') return taskFor(b);
     if (action === 'open-file' && b.file) return ctx.openFile(b.file);
-    if (action === 'emoji') {
-      const items = CALLOUT_EMOJIS.map((emoji) => ({ label: emoji, run: () => structural(() => ((b.emoji = emoji), { id })) }));
+    if (action === 'tone') {
+      const items = CALLOUT_TONES.map((t) => ({ label: t.label, icon: t.icon, run: () => structural(() => ((b.tone = t.key), { id })) }));
       openMenu('block', items, id, '', btn.getBoundingClientRect());
-      menu?.el.classList.add('ed-menu--grid');
       return;
     }
     if (b.rows && ['row-add', 'col-add', 'row-del', 'col-del'].includes(String(action))) {
@@ -1055,7 +1062,7 @@ export function createEditor(host, { blocks: initial, readOnly = false, ctx, onC
   on(document, 'click', (/** @type {MouseEvent} */ e) => {
     const t = /** @type {HTMLElement} */ (e.target);
     if (menu && menu.el.contains(t)) return onClick(e);
-    if (menu && !t.closest?.('[data-ed="menu"], [data-ed="add"], [data-ed="emoji"]')) closeMenu();
+    if (menu && !t.closest?.('[data-ed="menu"], [data-ed="add"], [data-ed="tone"]')) closeMenu();
   });
   on(document, 'mousedown', (/** @type {MouseEvent} */ e) => {
     if (menu?.el.contains(/** @type {Node} */ (e.target))) e.preventDefault();

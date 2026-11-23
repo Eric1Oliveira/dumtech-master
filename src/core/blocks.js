@@ -22,32 +22,48 @@
  * @property {boolean} [checked]    tarefa simples (sem taskId)
  * @property {string} [taskId]      tarefa de verdade (tabela tasks)
  * @property {boolean} [open]       alternar aberto
- * @property {string} [emoji]       destaque
+ * @property {CalloutTone} [tone]   destaque: nota, info, atenção, sucesso ou perigo
  * @property {{ path: string, name: string, mime: string | null, size: number }} [file]   imagem/arquivo (Storage)
  * @property {string} [pageId]      link para página
  * @property {string[][]} [rows]    tabela (texto simples)
  */
+/** @typedef {'note' | 'info' | 'warn' | 'success' | 'danger'} CalloutTone */
 /** @typedef {'p' | 'h1' | 'h2' | 'h3' | 'ul' | 'ol' | 'todo' | 'toggle' | 'quote' | 'callout' | 'code' | 'divider' | 'table' | 'image' | 'file' | 'page'} BlockType */
 
-/** Menu "/" — ordem de exibição. md = atalho digitado no começo do bloco + espaço. */
+/**
+ * Menu "/" — ordem de exibição. icon = nome em icons.js; glyph = texto curto no lugar do ícone (H1, H2…).
+ * md = atalho digitado no começo do bloco + espaço.
+ */
 export const BLOCK_TYPES = /** @type {const} */ ([
-  { type: 'p', label: 'Texto', hint: 'Parágrafo comum', icon: 'T', keys: 'texto paragrafo' },
-  { type: 'h1', label: 'Título 1', hint: 'Seção grande', icon: 'H1', md: '#', keys: 'titulo grande h1 cabecalho' },
-  { type: 'h2', label: 'Título 2', hint: 'Seção média', icon: 'H2', md: '##', keys: 'titulo medio h2 subtitulo' },
-  { type: 'h3', label: 'Título 3', hint: 'Seção pequena', icon: 'H3', md: '###', keys: 'titulo pequeno h3' },
-  { type: 'ul', label: 'Lista', hint: 'Lista com marcadores', icon: '•', md: '-', keys: 'lista marcadores topicos bullet' },
-  { type: 'ol', label: 'Lista numerada', hint: '1, 2, 3…', icon: '1.', md: '1.', keys: 'lista numerada numeros' },
-  { type: 'todo', label: 'Tarefa', hint: 'Caixa de marcar; pode ter responsável e prazo', icon: '☐', md: '[]', keys: 'tarefa checklist todo caixa pendencia' },
-  { type: 'toggle', label: 'Alternar', hint: 'Esconde o que está dentro', icon: '▸', md: '>>', keys: 'alternar toggle recolher esconder' },
-  { type: 'quote', label: 'Citação', hint: 'Trecho em destaque lateral', icon: '❝', md: '>', keys: 'citacao frase' },
-  { type: 'callout', label: 'Destaque', hint: 'Caixa com ícone', icon: '💡', keys: 'destaque aviso callout nota importante' },
-  { type: 'code', label: 'Código', hint: 'Texto em fonte fixa', icon: '</>', md: '```', keys: 'codigo script' },
-  { type: 'divider', label: 'Divisória', hint: 'Linha separadora', icon: '—', md: '---', keys: 'divisoria linha separador' },
-  { type: 'table', label: 'Tabela', hint: 'Linhas e colunas', icon: '▦', keys: 'tabela planilha grade' },
-  { type: 'image', label: 'Imagem', hint: 'Enviar uma imagem', icon: '🖼', keys: 'imagem foto print figura' },
-  { type: 'file', label: 'Arquivo', hint: 'Anexar um arquivo', icon: '📎', keys: 'arquivo anexo pdf documento' },
-  { type: 'page', label: 'Página', hint: 'Nova página dentro desta', icon: '📄', keys: 'subpagina pagina nova' },
+  { type: 'p', label: 'Texto', hint: 'Parágrafo comum', icon: 'type', keys: 'texto paragrafo' },
+  { type: 'h1', label: 'Título 1', hint: 'Seção grande', glyph: 'H1', md: '#', keys: 'titulo grande h1 cabecalho' },
+  { type: 'h2', label: 'Título 2', hint: 'Seção média', glyph: 'H2', md: '##', keys: 'titulo medio h2 subtitulo' },
+  { type: 'h3', label: 'Título 3', hint: 'Seção pequena', glyph: 'H3', md: '###', keys: 'titulo pequeno h3' },
+  { type: 'ul', label: 'Lista', hint: 'Lista com marcadores', icon: 'list', md: '-', keys: 'lista marcadores topicos bullet' },
+  { type: 'ol', label: 'Lista numerada', hint: '1, 2, 3…', icon: 'listOrdered', md: '1.', keys: 'lista numerada numeros' },
+  { type: 'todo', label: 'Tarefa', hint: 'Caixa de marcar; pode ter responsável e prazo', icon: 'checkSquare', md: '[]', keys: 'tarefa checklist todo caixa pendencia' },
+  { type: 'toggle', label: 'Alternar', hint: 'Esconde o que está dentro', icon: 'chevronRight', md: '>>', keys: 'alternar toggle recolher esconder' },
+  { type: 'quote', label: 'Citação', hint: 'Trecho em destaque lateral', icon: 'quote', md: '>', keys: 'citacao frase' },
+  { type: 'callout', label: 'Destaque', hint: 'Nota, info, atenção, sucesso ou perigo', icon: 'lightbulb', keys: 'destaque aviso callout nota importante atencao' },
+  { type: 'code', label: 'Código', hint: 'Texto em fonte fixa', icon: 'code', md: '```', keys: 'codigo script' },
+  { type: 'divider', label: 'Divisória', hint: 'Linha separadora', icon: 'minus', md: '---', keys: 'divisoria linha separador' },
+  { type: 'table', label: 'Tabela', hint: 'Linhas e colunas', icon: 'table', keys: 'tabela planilha grade' },
+  { type: 'image', label: 'Imagem', hint: 'Enviar uma imagem', icon: 'image', keys: 'imagem foto print figura' },
+  { type: 'file', label: 'Arquivo', hint: 'Anexar um arquivo', icon: 'paperclip', keys: 'arquivo anexo pdf documento' },
+  { type: 'page', label: 'Página', hint: 'Nova página dentro desta', icon: 'fileText', keys: 'subpagina pagina nova' },
 ]);
+
+/** Tipos de destaque (ícone de linha + cor; nada de emoji). */
+export const CALLOUT_TONES = /** @type {const} */ ([
+  { key: 'note', label: 'Nota', icon: 'lightbulb' },
+  { key: 'info', label: 'Info', icon: 'info' },
+  { key: 'warn', label: 'Atenção', icon: 'alert' },
+  { key: 'success', label: 'Sucesso', icon: 'checkCircle' },
+  { key: 'danger', label: 'Perigo', icon: 'xCircle' },
+]);
+const TONE_KEYS = new Set(CALLOUT_TONES.map((t) => t.key));
+/** Emoji antigo do destaque → tipo. @param {unknown} emoji @returns {CalloutTone} */
+export const toneFromEmoji = (emoji) => /** @type {any} */ ({ '⚠️': 'warn', '⚠': 'warn', '❗': 'danger', '🔥': 'danger', '✅': 'success', '💬': 'info', '🤖': 'info', '📅': 'info' })[String(emoji ?? '')] ?? 'note';
 
 const TYPE_SET = new Set(BLOCK_TYPES.map((t) => t.type));
 /** Blocos que têm texto editável. */
@@ -190,7 +206,7 @@ export function makeBlock(type, text = [], extra = {}) {
   const b = { id: newBlockId(), type, ...extra };
   if (TEXT_TYPES.has(type)) b.text = text;
   if (type === 'toggle' && b.open === undefined) b.open = true;
-  if (type === 'callout' && !b.emoji) b.emoji = '💡';
+  if (type === 'callout' && !b.tone) b.tone = 'note';
   if (type === 'table' && !b.rows) b.rows = [['', ''], ['', '']];
   return b;
 }
@@ -221,7 +237,7 @@ export function normalizeBlocks(input) {
       if (typeof r.taskId === 'string' && /^[0-9a-f-]{36}$/i.test(r.taskId)) b.taskId = r.taskId;
     }
     if (b.type === 'toggle') b.open = r.open !== false;
-    if (b.type === 'callout') b.emoji = String(r.emoji || '💡').slice(0, 8);
+    if (b.type === 'callout') b.tone = TONE_KEYS.has(r.tone) ? r.tone : toneFromEmoji(r.emoji);
     if ((b.type === 'image' || b.type === 'file') && r.file && typeof r.file.path === 'string') {
       b.file = { path: r.file.path.slice(0, 400), name: String(r.file.name ?? 'arquivo').slice(0, 200), mime: r.file.mime ? String(r.file.mime).slice(0, 120) : null, size: Math.max(0, Number(r.file.size) || 0) };
     }
@@ -325,7 +341,7 @@ export function blocksToMarkdown(blocks, title) {
       case 'todo': lines.push(`${pad}- [${b.checked ? 'x' : ' '}] ${text}`); break;
       case 'toggle': lines.push(`${pad}- ${text}`); break;
       case 'quote': lines.push(`> ${text}`); break;
-      case 'callout': lines.push(`> ${b.emoji ?? ''} ${text}`); break;
+      case 'callout': lines.push(`> ${text}`); break;
       case 'code': lines.push('```', runsText(b.text), '```'); break;
       case 'divider': lines.push('', '---', ''); break;
       case 'table': {
@@ -381,13 +397,13 @@ const todo = (text) => makeBlock('todo', plainRuns(text));
 /** Modelos prontos. blocks() gera ids novos a cada uso. */
 export const TEMPLATES = [
   {
-    id: 'meeting', title: 'Ata de reunião', icon: '🎙️', kind: /** @type {const} */ ('meeting'), hint: 'Grave ou cole a conversa; a ata e as tarefas saem sozinhas',
+    id: 'meeting', title: 'Ata de reunião', icon: 'mic', kind: /** @type {const} */ ('meeting'), docType: null, hint: 'Grave ou cole a conversa; a ata e as tarefas saem sozinhas',
     blocks: () => [],
   },
   {
-    id: 'briefing', title: 'Briefing de projeto', icon: '🧭', kind: /** @type {const} */ ('page'), hint: 'Objetivo, público, referências e entregas',
+    id: 'briefing', title: 'Briefing de projeto', icon: 'compass', kind: /** @type {const} */ ('page'), docType: 'briefing', hint: 'Objetivo, público, referências e entregas',
     blocks: () => [
-      makeBlock('callout', plainRuns('Preencha com o cliente na primeira conversa. O que estiver vago vira pergunta.'), { emoji: '🧭' }),
+      makeBlock('callout', plainRuns('Preencha com o cliente na primeira conversa. O que estiver vago vira pergunta.'), { tone: 'info' }),
       h2('Sobre o cliente'), line('Empresa, ramo e o que vende.'),
       h2('Objetivo'), line('O que o site/sistema precisa resolver?', 'ul'),
       h2('Público'), line('Quem vai usar? De onde vem?', 'ul'),
@@ -398,7 +414,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    id: 'launch', title: 'Checklist de publicação', icon: '🚀', kind: /** @type {const} */ ('page'), hint: 'Tudo o que conferir antes de pôr no ar',
+    id: 'launch', title: 'Checklist de publicação', icon: 'rocket', kind: /** @type {const} */ ('page'), docType: 'process', hint: 'Tudo o que conferir antes de pôr no ar',
     blocks: () => [
       h2('Conteúdo'), todo('Textos revisados (ortografia e telefones)'), todo('Imagens leves e com texto alternativo'), todo('Política de privacidade'),
       h2('Técnico'), todo('Domínio apontado e HTTPS ativo'), todo('Formulários testados de ponta a ponta'), todo('Abre bem no celular'), todo('Google Search Console e Analytics'),
@@ -406,7 +422,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    id: 'onboarding', title: 'Onboarding de cliente', icon: '🤝', kind: /** @type {const} */ ('page'), hint: 'Primeiros passos depois do fechamento',
+    id: 'onboarding', title: 'Onboarding de cliente', icon: 'users', kind: /** @type {const} */ ('page'), docType: 'process', hint: 'Primeiros passos depois do fechamento',
     blocks: () => [
       h2('Boas-vindas'), todo('Mensagem de boas-vindas no WhatsApp'), todo('Grupo ou canal de contato combinado'),
       h2('Acessos que o cliente envia'), todo('Logo em boa resolução'), todo('Acesso ao domínio'), todo('Fotos e textos'),
@@ -414,7 +430,23 @@ export const TEMPLATES = [
     ],
   },
   {
-    id: 'blank', title: 'Página em branco', icon: '📄', kind: /** @type {const} */ ('page'), hint: 'Comece do zero',
+    id: 'process', title: 'Processo', icon: 'listChecks', kind: /** @type {const} */ ('page'), docType: 'process', hint: 'Como a equipe faz algo, passo a passo',
+    blocks: () => [
+      h2('Para que serve'), line('Quando usar este processo e o resultado esperado.'),
+      h2('Passo a passo'), line('Primeiro passo', 'ol'), line('Segundo passo', 'ol'),
+      h2('Quem faz'), line('Responsável e quem ajuda.', 'ul'),
+    ],
+  },
+  {
+    id: 'project', title: 'Projeto interno', icon: 'folder', kind: /** @type {const} */ ('project'), docType: null, hint: 'Iniciativa da empresa com tarefas, reuniões e documentos',
+    blocks: () => [
+      h2('Objetivo'), line('O que este projeto precisa entregar e por quê.'),
+      h2('Escopo'), line('O que entra', 'ul'), line('O que fica de fora', 'ul'),
+      h2('Notas'), line(''),
+    ],
+  },
+  {
+    id: 'blank', title: 'Página em branco', icon: 'fileText', kind: /** @type {const} */ ('page'), docType: 'note', hint: 'Comece do zero',
     blocks: () => [],
   },
 ];

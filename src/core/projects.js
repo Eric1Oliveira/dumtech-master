@@ -49,9 +49,11 @@ export const TASK_STATUS = /** @type {const} */ ([
 
 /**
  * @typedef {Object} TaskInput
- * @property {string | null} productId   o projeto (opcional quando a tarefa vem de uma página)
- * @property {string | null} pageId      página do Caderno (ata de reunião)
+ * @property {string | null} productId   projeto de cliente (opcional)
+ * @property {string | null} pageId      página do Caderno: ata, projeto interno (opcional; tarefa solta não tem nenhum)
  * @property {string} title
+ * @property {'low' | 'medium' | 'high' | 'urgent' | null} priority
+ * @property {string} description
  * @property {'todo' | 'doing' | 'done'} status
  * @property {string | null} assigneeId
  * @property {string | null} dueDate
@@ -60,7 +62,8 @@ export const TASK_STATUS = /** @type {const} */ ([
 
 /** @param {Record<string, any>} input @returns {TaskInput} */
 export function normalizeTask(input) {
-  if (!input.productId && !input.pageId) throw new Error('A tarefa precisa de um projeto ou de uma página do Caderno.');
+  const description = String(input.description ?? '').trim();
+  if (description.length > 5000) throw new Error('A descrição passa de 5 mil caracteres.');
   return {
     productId: input.productId ? String(input.productId) : null,
     pageId: input.pageId ? String(input.pageId) : null,
@@ -69,6 +72,8 @@ export function normalizeTask(input) {
     assigneeId: idOrNull(input.assigneeId),
     dueDate: dateOrNull(input.dueDate, 'Prazo'),
     position: Number.isInteger(Number(input.position)) ? Number(input.position) : 0,
+    priority: ['low', 'medium', 'high', 'urgent'].includes(input.priority) ? input.priority : null,
+    description,
   };
 }
 

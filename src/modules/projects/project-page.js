@@ -29,6 +29,7 @@ import { linkSubscription, editSubscription, markPaid, undoPayment, monthCell } 
 import { loadProjects, summarizeProject } from './project-data.js';
 import { editProject } from './project-form.js';
 import { newPage } from '../workspace/new-page.js';
+import { pageIconHtml } from '../workspace/views.js';
 
 /** @typedef {ReturnType<typeof summarizeProject>} Project */
 /** @typedef {import('../../services/data.js').Asset} Asset */
@@ -287,11 +288,11 @@ export async function renderProjectPage({ root, module, signal }, id) {
       </header>
       ${pages.length || open.length
         ? html`${pages.length
-            ? html`<ul class="nb-list">${pages.map((pg) => html`<li><a class="nb-list__link" href="#/workspace/${pg.id}"><span class="nb-list__icon" aria-hidden="true">${pg.icon || (pg.kind === 'meeting' ? '🎙️' : '📄')}</span><span class="nb-list__title">${pg.title || 'Sem título'}</span><small>editada ${formatRelative(pg.updatedAt)}</small></a></li>`)}</ul>`
+            ? html`<ul class="nb-list">${pages.map((pg) => html`<li><a class="nb-list__link" href="#/workspace/${pg.id}">${pageIconHtml(pg)}<span class="nb-list__title">${pg.title || 'Sem título'}</span><small>editada ${formatRelative(pg.updatedAt)}</small></a></li>`)}</ul>`
             : ''}
           ${open.length
             ? html`<h3 class="subhead">Combinado nas reuniões</h3>
-              <ul class="nb-list">${open.map((t) => html`<li><a class="nb-list__link" href="#/workspace/${t.pageId}"><span class="nb-list__icon" aria-hidden="true">☐</span><span class="nb-list__title">${t.title}</span><small>${[t.assigneeName, t.dueDate ? `até ${formatDate(t.dueDate)}` : ''].filter(Boolean).join(' · ')}</small></a></li>`)}</ul>`
+              <ul class="nb-list">${open.map((t) => html`<li><a class="nb-list__link" href="#/workspace/${t.pageId}">${icon('checkSquare')}<span class="nb-list__title">${t.title}</span><small>${[t.assigneeName, t.dueDate ? `até ${formatDate(t.dueDate)}` : ''].filter(Boolean).join(' · ')}</small></a></li>`)}</ul>`
             : ''}`
         : emptyState({ title: 'Nada no Caderno ainda', text: 'Crie o briefing, registre reuniões e a ata sai com as tarefas.', compact: true })}
     </section>`;

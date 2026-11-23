@@ -527,7 +527,7 @@ async function documents(q) {
     text: rows.length
       ? `${plural(rows.length, 'página', 'páginas')}${words.length ? ` com “${q.terms}”` : ' no Caderno'}.${more(rows.length)}`
       : `Nenhuma página com “${q.terms}”.`,
-    items: rows.slice(0, MAX).map((d) => ({ label: `${d.icon || (d.kind === 'meeting' ? '🎙️' : '📄')} ${d.title || 'Sem título'}`, sub: `${d.kind === 'meeting' ? 'reunião · ' : ''}editada ${formatRelative(d.updatedAt)}${d.editorName ? ` por ${d.editorName}` : ''}`, href: `#/workspace/${d.id}` })),
+    items: rows.slice(0, MAX).map((d) => ({ label: d.title || 'Sem título', sub: `${d.kind === 'meeting' ? 'reunião · ' : ''}editada ${formatRelative(d.updatedAt)}${d.editorName ? ` por ${d.editorName}` : ''}`, href: `#/workspace/${d.id}` })),
   };
 }
 

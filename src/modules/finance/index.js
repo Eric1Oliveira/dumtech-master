@@ -6,8 +6,7 @@
 import { html, setHtml, $, bindActions } from '../../shared/utils/dom.js';
 import { formatMoney, formatRelative, formatDate } from '../../shared/utils/format.js';
 import { getState } from '../../core/state.js';
-import { billingStatus, monthKey } from '../../core/billing.js';
-import { serviceCosts, mrr } from '../../core/costs.js';
+import { moneyBoard } from '../../core/boards.js';
 import { today } from '../../core/validate.js';
 import { data } from '../../services/data.js';
 import { canDo } from '../../services/auth.js';
@@ -28,15 +27,6 @@ const muted = (/** @type {string} */ text = '—') => html`<span class="muted">$
 
 /** Parte do valor do mês que é recorrente prevista (ainda não caiu). */
 const projectedNote = (/** @type {number} */ value) => (value > 0 ? html`<small class="stat-note">inclui ${formatMoney(value)} de recorrentes previstas</small>` : '');
-
-/** Os 12 meses até o atual: "2025-12" … "2026-11". @param {string} todayKey */
-const lastMonths = (todayKey) => {
-  const [y, m] = todayKey.split('-').map(Number);
-  return Array.from({ length: 12 }, (_, i) => {
-    const d = new Date(Date.UTC(y, m - 1 - i, 1));
-    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-  });
-};
 
 /** @param {import('../index.js').ModuleContext} ctx */
 export async function render({ root, signal }) {
@@ -82,9 +72,6 @@ export async function render({ root, signal }) {
     const box = $('[data-master]', root);
     if (!box) return;
     try {
-      const todayKey = today();
-      const month = monthKey(todayKey);
-      const year = todayKey.slice(0, 4);
       const [products, subs, payments, assets, links, entries] = await Promise.all([
         data.products.list(org.id),
         data.customerProducts.list(org.id),
@@ -94,31 +81,8 @@ export async function render({ root, signal }) {
         data.productEntries.list(org.id).catch(() => []),
       ]);
       if (signal.aborted) return;
-      const costs = serviceCosts({ assets, links, projects: products });
-      const monthly = mrr(subs);
-      const seesCost = canDo('infra.view');
-      const active = subs.filter((s) => s.status === 'active' && s.monthlyAmount);
-      const states = active.map((s) => ({ s, state: billingStatus(s, payments, month, todayKey) }));
-      const expected = states.filter((x) => x.state !== 'none').reduce((t, x) => t + (x.s.monthlyAmount ?? 0), 0);
-      const received = payments.filter((p) => p.month === month).reduce((t, p) => t + p.amount, 0);
-      const late = states.filter((x) => x.state === 'late');
-      const open = states.filter((x) => x.state === 'open');
-      const sum = (/** @type {{ s: any }[]} */ list) => list.reduce((t, x) => t + (x.s.monthlyAmount ?? 0), 0);
-      const inMonth = (/** @type {string} */ ym) => ({
-        fees: payments.filter((p) => p.month === ym).reduce((t, p) => t + p.amount, 0),
-        setups: products.filter((p) => !p.setupOutside && p.setupPaidOn?.startsWith(ym)).reduce((t, p) => t + (p.setupAmount ?? 0), 0),
-        extras: entries.filter((e) => e.kind === 'revenue' && e.occurredOn.startsWith(ym)).reduce((t, e) => t + e.amount, 0),
-      });
-      const months = lastMonths(todayKey).map((ym) => ({ month: ym, ...inMonth(ym) }));
-      const yearTotal = months.filter((x) => x.month.startsWith(year)).reduce((t, x) => t + x.fees + x.setups + x.extras, 0);
-      const rows = products
-        .filter((p) => p.status === 'building' || p.status === 'live')
-        .map((p) => {
-          const mine = subs.filter((s) => s.productId === p.id && s.status !== 'cancelled');
-          const value = p.status === 'live' ? mine.filter((s) => s.status === 'active').reduce((t, s) => t + (s.monthlyAmount ?? 0), 0) : mine.reduce((t, s) => t + (s.monthlyAmount ?? 0), 0);
-          const cost = costs.projectCost(p.id);
-          return { p, customers: mine.map((s) => s.customerName).join(', '), value, cost, profit: value - cost, margin: value > 0 ? Math.round(((value - cost) / value) * 100) : null };
-        });
+      const { month, year, costs, monthly, seesCost, expected, expectedCount, received, late, open, months, yearTotal, rows } =
+        moneyBoard({ products, subs, payments, assets, links, entries }, { todayKey: today(), can: canDo });
 
       setHtml(
         /** @type {HTMLElement} */ (box),
@@ -131,10 +95,10 @@ export async function render({ root, signal }) {
           <section class="panel" aria-labelledby="month-title">
             <header class="panel__head"><div><h2 class="panel__title" id="month-title">${monthLabel(month)}</h2><p class="panel__hint">Mensalidades deste mês</p></div><a class="link-action" href="#/dashboard">Cobrar no Hoje →</a></header>
             <div class="kpi-band kpi-band--4">
-              <div class="kpi"><p class="kpi__label">Previsto</p><p class="kpi__value">${formatMoney(expected)}</p><p class="kpi__note">${states.filter((x) => x.state !== 'none').length} mensalidade(s)</p></div>
+              <div class="kpi"><p class="kpi__label">Previsto</p><p class="kpi__value">${formatMoney(expected)}</p><p class="kpi__note">${expectedCount} mensalidade(s)</p></div>
               <div class="kpi"><p class="kpi__label">Recebido</p><p class="kpi__value">${formatMoney(received)}</p><p class="kpi__note">${expected ? `${Math.round((received / expected) * 100)}% do previsto` : 'nada previsto'}</p></div>
-              <div class="kpi"><p class="kpi__label">A receber</p><p class="kpi__value">${formatMoney(sum(open))}</p><p class="kpi__note">${open.length} ainda no prazo</p></div>
-              <div class="kpi"><p class="kpi__label">Atrasado</p><p class="kpi__value ${late.length ? 'is-negative' : ''}">${formatMoney(sum(late))}</p><p class="kpi__note">${late.length ? `${late.length} cliente(s)` : 'ninguém atrasado'}</p></div>
+              <div class="kpi"><p class="kpi__label">A receber</p><p class="kpi__value">${formatMoney(open.total)}</p><p class="kpi__note">${open.count} ainda no prazo</p></div>
+              <div class="kpi"><p class="kpi__label">Atrasado</p><p class="kpi__value ${late.count ? 'is-negative' : ''}">${formatMoney(late.total)}</p><p class="kpi__note">${late.count ? `${late.count} cliente(s)` : 'ninguém atrasado'}</p></div>
             </div>
           </section>
           ${seesCost

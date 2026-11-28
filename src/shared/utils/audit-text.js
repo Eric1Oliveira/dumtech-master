@@ -106,7 +106,8 @@ export function describeAudit({ action, data = {} }) {
       return `levou o projeto “${data.name}” para ${({ proposal: 'Proposta', building: 'Em construção', live: 'Publicado', ended: 'Encerrado' })[data.to] ?? data.to}`;
     case 'settings.updated':
       if (data.name === 'audit_viewers') return `mudou quem vê a atividade: só o proprietário${data.roles?.length ? ` e ${data.roles.map((/** @type {string} */ r) => roleName(r)).join(', ')}` : ''}`;
-      return `mudou os ajustes de ${data.name === 'checklist' ? 'construção (checklist)' : data.name === 'telegram' ? 'avisos no celular' : 'cobrança'}`;
+      if (data.name === 'mobile') return `mudou o limite de celulares ligados para ${data.max}`;
+      return `mudou os ajustes de ${data.name === 'checklist' ? 'construção (checklist)' : data.name === 'telegram' ? 'avisos no Telegram' : 'cobrança'}`;
     case 'vault.created':
       return 'criou o próprio cofre de senhas';
     case 'vault.rotated':
@@ -146,6 +147,10 @@ export function describeAudit({ action, data = {} }) {
       return `marcou “${data.name}” como já lançado no FinanceSolux`;
     case 'finance_link.cleared':
       return `voltou “${data.name}” para a lista do FinanceSolux`;
+    case 'mobile.paired':
+      return `ligou o celular “${data.name}” (app no celular)`;
+    case 'mobile.revoked':
+      return `desligou o celular “${data.name}”`;
   }
   const [entity, verb] = action.split('.');
   const noun = ENTITIES[entity];
@@ -168,6 +173,7 @@ export const AUDIT_GROUPS = [
   { id: 'task', label: 'Tarefas' },
   { id: 'asset', label: 'Serviços' },
   { id: 'automation', label: 'Automações' },
+  { id: 'mobile', label: 'App no celular' },
   { id: 'secret', label: 'Cofre (segredos)' },
   { id: 'vault', label: 'Cofre (configuração)' },
   { id: 'document', label: 'Documentos' },

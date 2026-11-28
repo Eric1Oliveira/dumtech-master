@@ -26,7 +26,7 @@ export async function dictate({ title = 'Ditar', hint = 'Fale normalmente e cliq
   const loading = transcriber.load((s) => setStatus(s)).catch((e) => e);
   const start = () =>
     startRecording({
-      withTab: false,
+      call: null,
       onChunk: (c) => chunks.push(c),
       onLevel: (v) => {
         const el = $('[data-dict-level]');

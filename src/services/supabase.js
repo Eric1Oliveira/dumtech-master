@@ -13,6 +13,7 @@ import { normalizeAsset, normalizeMonitor } from '../core/infra.js';
 import { normalizeDocument, safeFileName, FILE_MAX_BYTES } from '../core/workspace.js';
 import { normalizeBlocks } from '../core/blocks.js';
 import { ICON_COLORS } from '../core/notebook.js';
+import { fromRow, toRow, toSnake, personName, fromCustomerRow, mapAmount, mapProduct, mapTask, mapAsset, fromSubRow, fromMonitorRow, fromProposalRow, fromLinkRow } from './rows.js';
 
 /** @typedef {import('@supabase/supabase-js').SupabaseClient} SupabaseClient */
 
@@ -98,32 +99,7 @@ const redirectUrl = () => `${location.origin}${location.pathname}`;
 
 const CUSTOMER_COLUMNS = 'id, kind, name, document, email, phone, city, status, owner_id, notes, tags, created_at, updated_at, owner:profiles!customers_owner_id_fkey(full_name, email)';
 
-/** @returns {import('./data.js').Customer} */
-const fromCustomerRow = (/** @type {any} */ r) => ({
-  id: r.id,
-  kind: r.kind,
-  name: r.name,
-  document: r.document,
-  email: r.email,
-  phone: r.phone,
-  city: r.city,
-  status: r.status,
-  ownerId: r.owner_id,
-  ownerName: r.owner?.full_name || r.owner?.email || '',
-  notes: r.notes ?? '',
-  tags: r.tags ?? [],
-  createdAt: r.created_at,
-  updatedAt: r.updated_at,
-});
-
-// Tabelas da organização --------------------------------------------------------------
-const toCamel = (/** @type {string} */ s) => s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-const toSnake = (/** @type {string} */ s) => s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
-/** @returns {any} */
-const fromRow = (/** @type {Record<string, any>} */ row) => Object.fromEntries(Object.entries(row).map(([k, v]) => [toCamel(k), v]));
-const toRow = (/** @type {Record<string, any>} */ obj) => Object.fromEntries(Object.entries(obj).map(([k, v]) => [toSnake(k), v]));
-const personName = (/** @type {any} */ p) => p?.full_name || p?.email || '';
-const num = (/** @type {any} */ v) => (v === null || v === undefined ? null : Number(v));
+// Conversão linha → objeto: rows.js (o app do celular usa a mesma).
 
 /**
  * Listar, salvar (criar/editar) e excluir numa tabela com org_id. Quem decide é a RLS:
@@ -445,7 +421,7 @@ export const supabaseBackend = {
     order: 'month',
     ascending: false,
     normalize: normalizePayment,
-    map: ({ amount, ...r }) => ({ ...r, amount: Number(amount) }),
+    map: mapAmount,
     denied: 'Seu papel não permite registrar pagamentos.',
     fixed: ['subscription_id', 'month'],
   }),
@@ -455,7 +431,7 @@ export const supabaseBackend = {
     order: 'occurred_on',
     ascending: false,
     normalize: normalizeEntry,
-    map: ({ amount, ...r }) => ({ ...r, amount: Number(amount) }),
+    map: mapAmount,
     denied: 'Seu papel não permite editar produtos.',
     fixed: ['product_id'],
   }),
@@ -465,7 +441,7 @@ export const supabaseBackend = {
       select: '*, owner:profiles!products_owner_id_fkey(full_name, email)',
       order: 'name',
       normalize: normalizeProduct,
-      map: ({ owner, price, monthlyPrice, setupAmount, ...r }) => ({ ...r, price: num(price), monthlyPrice: num(monthlyPrice), setupAmount: num(setupAmount), ownerName: personName(owner) }),
+      map: mapProduct,
       denied: 'Seu papel não permite editar projetos.',
     }),
     async create(orgId, input) {
@@ -483,7 +459,7 @@ export const supabaseBackend = {
     async list(orgId) {
       const sb = await getClient();
       const rows = unwrap(await sb.from('asset_projects').select('asset_id, product_id').eq('org_id', orgId));
-      return /** @type {any[]} */ (rows).map((r) => ({ assetId: r.asset_id, productId: r.product_id }));
+      return /** @type {any[]} */ (rows).map(fromLinkRow);
     },
     async add(orgId, assetId, productId) {
       const sb = await getClient();
@@ -519,10 +495,7 @@ export const supabaseBackend = {
     async list(orgId) {
       const sb = await getClient();
       const rows = unwrap(await sb.from('monitors').select('*, product:products(url), asset:infra_assets(url)').eq('org_id', orgId).order('created_at'));
-      return /** @type {any[]} */ (rows).map(({ product, asset, ...r }) => {
-        const m = fromRow(r);
-        return { ...m, target: m.url ?? (m.kind === 'site' ? product?.url : asset?.url) ?? null };
-      });
+      return /** @type {any[]} */ (rows).map(fromMonitorRow);
     },
     async save(orgId, input, id) {
       const sb = await getClient();
@@ -551,18 +524,7 @@ export const supabaseBackend = {
       if (filter.productId) query = query.eq('product_id', filter.productId);
       if (filter.customerId) query = query.eq('customer_id', filter.customerId);
       const rows = unwrap(await query.order('since', { ascending: false }));
-      return /** @type {any[]} */ (rows).map((r) => ({
-        id: r.id,
-        customerId: r.customer_id,
-        customerName: r.customer?.name ?? '',
-        productId: r.product_id,
-        productName: r.product?.name ?? '',
-        status: r.status,
-        since: r.since,
-        monthlyAmount: num(r.monthly_amount),
-        billingDay: r.billing_day ?? null,
-        adjustedOn: r.adjusted_on ?? null,
-      }));
+      return /** @type {any[]} */ (rows).map(fromSubRow);
     },
     async link(orgId, customerId, productId, terms) {
       const sb = await getClient();
@@ -601,10 +563,7 @@ export const supabaseBackend = {
     async list(orgId) {
       const sb = await getClient();
       const rows = unwrap(await sb.from('proposals').select('*, customer:customers(name)').eq('org_id', orgId).order('number', { ascending: false }));
-      return /** @type {any[]} */ (rows).map(({ customer, ...r }) => {
-        const p = fromRow(r);
-        return { ...p, customerName: customer?.name ?? '', totalOnce: Number(p.totalOnce), totalMonthly: Number(p.totalMonthly) };
-      });
+      return /** @type {any[]} */ (rows).map(fromProposalRow);
     },
     async items(orgId, proposalId) {
       const sb = await getClient();
@@ -643,7 +602,7 @@ export const supabaseBackend = {
     select: '*, assignee:profiles!tasks_assignee_id_fkey(full_name, email), product:products(name), page:pages(title)',
     order: 'position',
     normalize: normalizeTask,
-    map: ({ assignee, product, page, projectId: _legacy, ...r }) => ({ ...r, pageId: r.pageId ?? null, assigneeName: personName(assignee), projectName: product?.name ?? '', pageTitle: page?.title ?? '' }),
+    map: mapTask,
     denied: 'Seu papel não permite editar tarefas.',
     fixed: ['product_id'],
   }),
@@ -652,7 +611,7 @@ export const supabaseBackend = {
     select: '*, product:products(name), owner:profiles!infra_assets_owner_id_fkey(full_name, email)',
     order: 'name',
     normalize: normalizeAsset,
-    map: ({ product, owner, cost, price, fixedShare, monitor: _m, lastCheckAt: _a, lastCheckOk: _b, lastCheckCode: _c, ...r }) => ({ ...r, cost: num(cost), price: num(price), fixedShare: num(fixedShare), productName: product?.name ?? '', ownerName: personName(owner) }),
+    map: mapAsset,
     denied: 'Seu papel não permite editar a infraestrutura.',
   }),
 
@@ -815,6 +774,32 @@ export const supabaseBackend = {
     async test(orgId) {
       const sb = await getClient();
       return Boolean(unwrap(await sb.rpc('telegram_test', { p_org: orgId })));
+    },
+  },
+
+  mobile: {
+    async pairStart(orgId) {
+      const sb = await getClient();
+      const r = unwrap(await sb.rpc('mobile_pair_start', { p_org: orgId }));
+      return { code: r.code, expiresAt: r.expires_at, limit: r.limit, active: r.active };
+    },
+    async devices(orgId) {
+      const sb = await getClient();
+      const r = unwrap(await sb.rpc('mobile_device_list', { p_org: orgId }));
+      return {
+        limit: r.limit,
+        active: r.active,
+        owner: r.owner,
+        devices: /** @type {any[]} */ (r.devices ?? []).map((d) => ({ id: d.id, name: d.name, mine: d.mine, person: d.person, bio: d.bio, push: d.push, createdAt: d.created_at, lastSeenAt: d.last_seen_at })),
+      };
+    },
+    async revoke(_orgId, id) {
+      const sb = await getClient();
+      unwrap(await sb.rpc('mobile_revoke', { p_device: id }));
+    },
+    async setLimit(orgId, max) {
+      const sb = await getClient();
+      unwrap(await sb.rpc('mobile_set_limit', { p_org: orgId, p_max: max }));
     },
   },
 

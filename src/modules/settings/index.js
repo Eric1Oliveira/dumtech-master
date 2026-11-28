@@ -11,6 +11,7 @@ const SECTIONS = {
   members: () => import('./members.js'),
   prices: () => import('./prices.js'),
   billing: () => import('./billing.js'),
+  mobile: () => import('./mobile.js'),
   alerts: () => import('./alerts.js'),
   checklist: () => import('./checklist.js'),
   automations: () => import('./automations.js'),

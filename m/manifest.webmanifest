@@ -1,0 +1,18 @@
+{
+  "id": "./",
+  "name": "DUM Celular",
+  "short_name": "DUM",
+  "description": "O DUMTech Master no celular: Hoje, No ar, Dinheiro, Projetos e Clientes, só para ver, com avisos.",
+  "lang": "pt-BR",
+  "start_url": "./#/hoje",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f1419",
+  "theme_color": "#0f1419",
+  "icons": [
+    { "src": "../assets/images/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "../assets/images/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "../assets/images/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

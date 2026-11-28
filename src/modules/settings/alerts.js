@@ -1,4 +1,4 @@
-// Ajustes › Avisos no celular: liga o Telegram. Site fora do ar (e quando volta), cobranças do dia e
+// Ajustes › Avisos no Telegram: liga o Telegram. Site fora do ar (e quando volta), cobranças do dia e
 // vencimentos chegam no celular, mesmo com o sistema fechado. O token do bot fica só no servidor;
 // o navegador usa o token uma vez, para achar a conversa (api.telegram.org, liberado na CSP).
 

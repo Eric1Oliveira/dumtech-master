@@ -56,6 +56,12 @@ import { supabaseBackend } from './supabase.js';
  */
 
 /**
+ * Celulares ligados (o proprietário vê os de todos; cada um vê os próprios).
+ * @typedef {{ limit: number, active: number, owner: boolean,
+ *   devices: { id: string, name: string, mine: boolean, person: string, bio: boolean, push: boolean, createdAt: string, lastSeenAt: string | null }[] }} MobileDevices
+ */
+
+/**
  * @typedef {Object} Invitation
  * @property {string} id
  * @property {string} email
@@ -395,7 +401,13 @@ import { supabaseBackend } from './supabase.js';
  *   status: (orgId: string) => Promise<{ configured: boolean, chat: string | null }>,
  *   set: (orgId: string, config: { token: string, chatId: string, chatName: string } | null) => Promise<void>,
  *   test: (orgId: string) => Promise<boolean>,
- * }} telegram      avisos no celular (o token fica só no servidor)
+ * }} telegram      avisos no Telegram (o token fica só no servidor)
+ * @property {{
+ *   pairStart: (orgId: string) => Promise<{ code: string, expiresAt: string, limit: number, active: number }>,
+ *   devices: (orgId: string) => Promise<MobileDevices>,
+ *   revoke: (orgId: string, id: string) => Promise<void>,
+ *   setLimit: (orgId: string, max: number) => Promise<void>,
+ * }} mobile        app no celular: QR de uso único, aparelhos ligados e o limite (só o proprietário muda)
  * @property {OrgTable<Doc, DocumentInput>} documents   legado (virou páginas do Caderno)
  * @property {{
  *   list: (orgId: string) => Promise<PageMeta[]>,

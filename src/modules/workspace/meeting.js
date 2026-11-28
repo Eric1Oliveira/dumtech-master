@@ -13,7 +13,7 @@ import { openDialog, confirmDialog } from '../../shared/components/dialog.js';
 import { toast, toastError, errorMessage } from '../../shared/components/feedback.js';
 import { icon } from '../../shared/components/icons.js';
 import { aiLevel, gpu, accepted, accept, transcriber, minutesModel } from './ai.js';
-import { startRecording, decodeAudioFile } from './recorder.js';
+import { startRecording, decodeAudioFile, findCallDevice, isOpera } from './recorder.js';
 
 /** @typedef {import('../../services/data.js').Meeting} Meeting */
 /** @typedef {import('../../core/minutes.js').Segment} Segment */
@@ -92,8 +92,8 @@ export function mountMeeting(slot, opts) {
                 ? html`<button type="button" class="btn btn--danger" data-mt="stop">${icon('check')}<span>Parar gravação</span></button>
                   <span class="mt-rec" aria-live="off"><span class="mt-rec__dot" aria-hidden="true"></span><span data-mt-time>${formatClock(rec?.elapsed() ?? 0)}</span>
                     <span class="mt-level" aria-hidden="true"><span data-mt-level></span></span></span>`
-                : html`<button type="button" class="btn btn--primary" data-mt="record">${icon('message')}<span>Gravar reunião</span></button>
-                  <button type="button" class="btn btn--secondary" data-mt="record-tab" title="Grave também o som da aba do Google Meet, Zoom ou Teams">${icon('monitor')}<span>Gravar com a aba da chamada</span></button>
+                : html`<button type="button" class="btn btn--primary" data-mt="record-tab" title="Grava você e o que os outros falam no Meet, Zoom ou Teams">${icon('monitor')}<span>Gravar reunião</span></button>
+                  <button type="button" class="btn btn--secondary" data-mt="record" title="Só microfone — para reuniões presenciais">${icon('message')}<span>Gravar presencial</span></button>
                   <label class="btn btn--secondary file-pick">${icon('send')}<span>Enviar áudio</span><input type="file" accept="audio/*,video/webm,video/mp4" class="sr-only" data-mt-file></label>
                   <button type="button" class="btn btn--secondary" data-mt="paste">${icon('edit')}<span>Colar transcrição</span></button>`}
               <span class="mt-actions__gap"></span>
@@ -180,23 +180,40 @@ export function mountMeeting(slot, opts) {
     pump();
   };
 
-  /** @param {boolean} withTab */
-  async function record(withTab) {
+  /** @param {boolean} withCall */
+  async function record(withCall) {
     if (!(await okToDownloadWhisper())) return;
+    /** @type {'tab' | { deviceId: string } | null} */
+    let call = null;
+    if (withCall) {
+      const deviceId = await findCallDevice();
+      if (deviceId) call = { deviceId };
+      else if (isOpera()) {
+        const ok = await confirmDialog({
+          title: 'O Opera não grava o som da chamada',
+          message: 'O Opera GX fecha sozinho quando um site pede para compartilhar a aba. Para gravar o que os outros falam, abra o DUM no Edge ou no Chrome e grave por lá (ou ative a "Mixagem estéreo" do Windows). Aqui no Opera dá para gravar só o seu microfone.',
+          confirmLabel: 'Gravar só o microfone',
+        });
+        if (!ok) return;
+      } else call = 'tab';
+    }
     try {
       // Quem já estava antes desta gravação: a próxima continua no tempo certo.
       const base = meeting.durationS;
       rec = await startRecording({
-        withTab,
+        call,
         onChunk: (c) => enqueue({ ...c, offset: c.offset + base }),
         onLevel: (v) => {
           level = v;
           const el = /** @type {HTMLElement | null} */ (slot.querySelector('[data-mt-level]'));
           if (el) el.style.transform = `scaleX(${Math.max(0.04, level)})`;
         },
+        onCallEnded: () => {
+          if (rec) setStatus('O som da chamada parou de ser compartilhado. Continuo gravando só o seu microfone.');
+        },
       });
       if (!meeting.participants.some((p) => fold(p) === fold(opts.me.name))) meeting.participants.push(opts.me.name);
-      status = withTab ? 'Gravando o microfone e a aba da chamada. A transcrição sai a cada 30 s.' : 'Gravando. A transcrição sai a cada 30 s.';
+      status = call ? 'Gravando você e o som da chamada (todos os participantes). A transcrição sai a cada 30 s.' : 'Gravando o microfone. A transcrição sai a cada 30 s.';
       draw();
       timer = setInterval(() => {
         const el = slot.querySelector('[data-mt-time]');
@@ -204,6 +221,15 @@ export function mountMeeting(slot, opts) {
       }, 1000);
     } catch (error) {
       rec = null;
+      if (call === 'tab' && /** @type {Error} */ (error).message?.includes('cancelada')) {
+        const fallback = await confirmDialog({
+          title: 'Aba não compartilhada',
+          message: 'Para gravar o que os outros falam, escolha a aba da chamada com "Compartilhar áudio da guia" ligado (ou "Tela inteira" com "Compartilhar áudio do sistema", se a reunião estiver no app do Zoom/Teams). Quer gravar só o seu microfone?',
+          confirmLabel: 'Gravar só microfone',
+        });
+        if (fallback) record(false);
+        return;
+      }
       toastError(error);
     }
   }

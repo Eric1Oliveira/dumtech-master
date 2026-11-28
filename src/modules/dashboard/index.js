@@ -6,12 +6,11 @@ import { html, setHtml, $, bindActions } from '../../shared/utils/dom.js';
 import { formatDateLong, formatMoney, formatDate, formatDateTime } from '../../shared/utils/format.js';
 import { getState } from '../../core/state.js';
 import { roleName } from '../../core/permissions.js';
-import { billingStatus, monthKey, dueDate, billingMessage, adjustmentDue } from '../../core/billing.js';
+import { billingMessage } from '../../core/billing.js';
 import { whatsappLink } from '../../core/customers.js';
-import { ASSET_KINDS } from '../../core/infra.js';
-import { serviceCosts, mrr } from '../../core/costs.js';
-import { todayList, dayLabel, greeting } from '../../core/today.js';
-import { labelOf, today } from '../../core/validate.js';
+import { dayLabel, greeting } from '../../core/today.js';
+import { todayBoard } from '../../core/boards.js';
+import { today } from '../../core/validate.js';
 import { data } from '../../services/data.js';
 import { canDo } from '../../services/auth.js';
 import { emptyState, loadError, toast, toastError } from '../../shared/components/feedback.js';
@@ -59,7 +58,6 @@ export async function render({ root, signal }) {
 
   const load = async () => {
     const todayKey = today();
-    const month = monthKey(todayKey);
     const [products, subs, payments, customers, contacts, monitors, assets, links, tasks, proposals, billing] = await Promise.all([
       canDo('products.view') ? data.products.list(org.id) : [],
       canDo('products.view') ? data.customerProducts.list(org.id) : [],
@@ -73,57 +71,7 @@ export async function render({ root, signal }) {
       canDo('proposals.view') ? data.proposals.list(org.id) : [],
       data.settings.get(org.id, 'billing').catch(() => null),
     ]);
-    const name = new Map(products.map((p) => /** @type {[string, string]} */ ([p.id, p.name])));
-    const phoneOf = (/** @type {string} */ customerId) =>
-      contacts.find((c) => c.customerId === customerId && c.isPrimary && c.phone)?.phone ?? customers.find((c) => c.id === customerId)?.phone ?? null;
-    const active = subs.filter((s) => s.status === 'active' && s.monthlyAmount);
-    const billings = payments
-      ? active.filter((s) => s.billingDay).map((s) => ({
-          sub: s,
-          subId: s.id,
-          customerId: s.customerId,
-          customerName: s.customerName,
-          productName: s.productName,
-          amountLabel: formatMoney(s.monthlyAmount ?? 0),
-          due: dueDate(month, /** @type {number} */ (s.billingDay)),
-          state: billingStatus(s, payments, month, todayKey),
-          phone: phoneOf(s.customerId),
-        }))
-      : [];
-    const customerOf = (/** @type {string} */ productId) => subs.find((s) => s.productId === productId && s.status !== 'cancelled')?.customerName ?? '';
-    /** Cliente do projeto e o telefone dele (aviso de queda). */
-    const contactOf = (/** @type {string | null} */ productId) => {
-      const sub = productId ? subs.find((s) => s.productId === productId && s.status !== 'cancelled') : null;
-      return sub ? { name: sub.customerName, phone: phoneOf(sub.customerId) } : null;
-    };
-    const setups = canDo('products.manage')
-      ? products.filter((p) => (p.status === 'building' || p.status === 'live') && p.setupAmount && !p.setupPaidOn)
-          .map((p) => ({ productId: p.id, name: p.name, customerName: customerOf(p.id), amountLabel: formatMoney(p.setupAmount ?? 0) }))
-      : [];
-    const pct = Number(billing?.adjustPct ?? 5);
-    const adjustments = canDo('products.manage')
-      ? subs.flatMap((sub) => {
-          const due = adjustmentDue(sub, todayKey, pct);
-          if (!due) return [];
-          const when = due.days < 0 ? 'desde ' + formatDate(due.date) : 'em ' + formatDate(due.date);
-          return [{ sub, due, subId: sub.id, customerName: sub.customerName, productName: sub.productName, date: due.date,
-            label: `1 ano ${when} · ${formatMoney(sub.monthlyAmount ?? 0)} → ${formatMoney(due.amount)} (+${String(due.pct).replace('.', ',')}%)` }];
-        })
-      : [];
-    const items = todayList({
-      monitors: monitors.map((m) => ({ ...m, projectName: m.productId ? name.get(m.productId) : undefined })),
-      billings,
-      setups,
-      adjustments,
-      assets: assets.map((a) => ({ ...a, kindLabel: labelOf(ASSET_KINDS, a.kind) })),
-      tasks,
-      proposals,
-    }, todayKey, user?.id ?? null);
-    const costs = serviceCosts({ assets, links, projects: products });
-    const expected = billings.filter((b) => b.state !== 'none').reduce((s, b) => s + (b.sub.monthlyAmount ?? 0), 0);
-    const mine = new Set(subs.map((s) => s.id));
-    const received = (payments ?? []).filter((p) => p.month === month && mine.has(p.subscriptionId)).reduce((s, p) => s + p.amount, 0);
-    state = { items, adjustments, contactOf, billings, products, subs, tasks, assets, monitors, billing, month, monthly: mrr(subs), expected, received, cost: canDo('infra.view') ? costs.total : null, seesBilling: Boolean(payments) };
+    state = todayBoard({ products, subs, payments, customers, contacts, monitors, assets, links, tasks, proposals, billing }, { todayKey, me: user?.id ?? null, can: canDo });
   };
 
   const draw = () => {

@@ -1,5 +1,5 @@
-// Gravação da reunião no navegador. Microfone ("você") e, se pedido, o áudio da aba do Meet/Zoom
-// ("outros"), cada um em PCM 16 kHz para o Whisper, em pedaços de ~30 s enquanto grava.
+// Gravação da reunião no navegador. Microfone ("você") e, se pedido, o som da chamada ("outros"):
+// pela entrada de som do computador (Mixagem estéreo/VB-Cable) ou pela aba do Meet/Zoom, cada um em PCM 16 kHz para o Whisper, em pedaços de ~30 s enquanto grava.
 // Em paralelo, um arquivo .webm (só para baixar, se quiser). Nada vai para o servidor.
 
 const CHUNK_S = 30;
@@ -12,33 +12,67 @@ export function isSilent(audio) {
   return Math.sqrt(sum / Math.max(1, audio.length / 4)) < 0.004;
 }
 
+const CALL_DEVICE = /stereo mix|mixagem est[eé]reo|mezcla est[eé]reo|what u hear|loopback|cable output|voicemeeter out/i;
+
+/** O seletor de compartilhamento do Opera GX derruba o navegador inteiro. */
+export const isOpera = () => /\bOPR\//.test(navigator.userAgent);
+
+/** Entrada com o som do computador (Mixagem estéreo, VB-Cable…): grava a chamada sem o seletor de aba. */
+export async function findCallDevice() {
+  const devices = (await navigator.mediaDevices?.enumerateDevices?.()) ?? [];
+  return devices.find((d) => d.kind === 'audioinput' && CALL_DEVICE.test(d.label))?.deviceId ?? null;
+}
+
 /**
- * @param {{ withTab: boolean, onChunk: (chunk: { audio: Float32Array, offset: number, who: string | null }) => void, onLevel?: (level: number) => void }} options
+ * @param {{ call: 'tab' | { deviceId: string } | null, onChunk: (chunk: { audio: Float32Array, offset: number, who: string | null }) => void, onLevel?: (level: number) => void, onCallEnded?: () => void }} options
  */
-export async function startRecording({ withTab, onChunk, onLevel }) {
+export async function startRecording({ call, onChunk, onLevel, onCallEnded }) {
   if (!navigator.mediaDevices?.getUserMedia) throw new Error('Este navegador não grava áudio.');
+  /** @type {MediaStream | null} */
+  let display = null;
+  // A aba vem antes do microfone: o Chrome só abre o seletor logo depois do clique.
+  if (call === 'tab') {
+    if (!navigator.mediaDevices.getDisplayMedia) throw new Error('Este navegador não grava o som da chamada. Use o Chrome ou o Edge no computador.');
+    const controller = 'CaptureController' in window ? new window.CaptureController() : undefined;
+    try {
+      display = await navigator.mediaDevices.getDisplayMedia(/** @type {any} */ ({
+        video: { frameRate: 1 },
+        audio: true,
+        systemAudio: 'include',
+        selfBrowserSurface: 'exclude',
+        surfaceSwitching: 'include',
+        controller,
+      }));
+    } catch {
+      throw new Error('Gravação da aba cancelada.');
+    }
+    // Sem isto o Chrome pula para a aba compartilhada e o DUM some da frente.
+    try {
+      controller?.setFocusBehavior('no-focus-change');
+    } catch {
+      /* tela inteira não troca de foco */
+    }
+    if (!display.getAudioTracks().length) {
+      display.getTracks().forEach((t) => t.stop());
+      throw new Error('O compartilhamento veio sem som. Escolha a aba da reunião com "Compartilhar áudio da guia" ligado, ou, se a reunião estiver no app do Zoom/Teams, escolha "Tela inteira" com "Compartilhar áudio do sistema".');
+    }
+  }
   /** @type {MediaStream[]} */
   const streams = [];
   try {
     streams.push(await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }));
   } catch {
+    display?.getTracks().forEach((t) => t.stop());
     throw new Error('Sem acesso ao microfone. Libere o microfone para este site e tente de novo.');
   }
-  if (withTab) {
-    let display;
+  if (display) streams.push(new MediaStream(display.getAudioTracks()));
+  if (call && call !== 'tab') {
     try {
-      display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      streams.push(await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: call.deviceId }, echoCancellation: false, noiseSuppression: false, autoGainControl: false } }));
     } catch {
       streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
-      throw new Error('Gravação da aba cancelada.');
+      throw new Error('Não consegui abrir a entrada com o som do computador (Mixagem estéreo). Confira se ela está ativada no Windows.');
     }
-    if (!display.getAudioTracks().length) {
-      display.getTracks().forEach((t) => t.stop());
-      streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
-      throw new Error('A aba foi escolhida sem áudio. Escolha a aba da reunião e marque "Compartilhar áudio da guia".');
-    }
-    display.getVideoTracks().forEach((t) => t.stop());
-    streams.push(new MediaStream(display.getAudioTracks()));
   }
 
   const ctx = new AudioContext({ sampleRate: RATE });
@@ -82,10 +116,17 @@ export async function startRecording({ withTab, onChunk, onLevel }) {
     return { stream, node, flush };
   });
 
-  // Medidor de volume do microfone
+  // "Parar de compartilhar" ou fechar a aba da chamada: o microfone segue gravando.
+  streams[1]?.getAudioTracks()[0]?.addEventListener('ended', () => {
+    sources[1].flush();
+    display?.getTracks().forEach((t) => t.stop());
+    onCallEnded?.();
+  });
+
+  // Medidor de volume: você e a chamada
   const analyser = ctx.createAnalyser();
   analyser.fftSize = 512;
-  ctx.createMediaStreamSource(streams[0]).connect(analyser);
+  streams.forEach((s) => ctx.createMediaStreamSource(s).connect(analyser));
   const levels = new Uint8Array(analyser.fftSize);
   const meter = setInterval(() => {
     analyser.getByteTimeDomainData(levels);
@@ -117,6 +158,7 @@ export async function startRecording({ withTab, onChunk, onLevel }) {
       await new Promise((r) => setTimeout(r, 300));
       sources.forEach((s) => s.flush());
       streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
+      display?.getTracks().forEach((t) => t.stop());
       await ctx.close();
       return { blob: blobs.length ? new Blob(blobs, { type: type || 'audio/webm' }) : null, durationS: Math.round((performance.now() - startedAt) / 1000) };
     },
